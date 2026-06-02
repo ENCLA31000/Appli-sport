@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Suivi Footballeur</title>
+
+<!-- ======================================================= -->
+<!--  FONTS                                                   -->
+<!-- ======================================================= -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@800;900&family=Hanken+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+
+<!-- ======================================================= -->
+<!--  FIREBASE (compat – globals)                             -->
+<!-- ======================================================= -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<!-- ======================================================= -->
+<!--  REACT + BABEL                                           -->
+<!-- ======================================================= -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<style>
+  html,body{margin:0;padding:0;background:#0d1117;}
+  *{-webkit-tap-highlight-color:transparent;box-sizing:border-box;}
+  input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.6);}
+  ::-webkit-scrollbar{width:0;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- ========================================================= -->
+<!--  CONFIGURATION — À REMPLIR avec les informations de votre projet Firebase  -->
+<!-- ========================================================= -->
+<script>
+  // 1) Colle ici la config web de TON projet Firebase
+  const firebaseConfig = {
+    apiKey: "COLLE_ICI",
+    authDomain: "COLLE_ICI",
+    projectId: "COLLE_ICI",
+    storageBucket: "COLLE_ICI",
+    messagingSenderId: "COLLE_ICI",
+    appId: "COLLE_ICI"
+  };
+  // 2) Colle ici l'UID du compte COACH (celui qui aura le droit de modifier)
+  const COACH_UID = "COLLE_L_UID_DU_COACH_ICI";
+</script>
+
+<!-- ========================================================= -->
+<!--  APPLICATION                                              -->
+<!-- ========================================================= -->
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const C = {
+  bg:"#0d1117", bg2:"#161b22", card:"#1c232d", line:"#2a3340",
+  text:"#e7edf3", dim:"#8a97a6", lime:"#c6ff3e", limeDk:"#9ad400",
+  orange:"#ff7a3c", blue:"#4aa8ff", red:"#ff5470",
+};
+const CAT = {
+  physique:{label:"Physique",color:C.orange,emoji:"⚡"},
+  technique:{label:"Technique",color:C.lime,emoji:"🎯"},
+  mental:{label:"Mental",color:C.blue,emoji:"🧠"},
+};
+
+const DEFAULT_DATA = {
+  player:{ name:"Mon joueur", level:"U18 — Régional" },
+  modules:[
+    {id:"m1",name:"Sprint 30 m",category:"physique",type:"mesure",unit:"s",objectiveIds:["oSprint"]},
+    {id:"m2",name:"Jonglages",category:"physique",type:"mesure",unit:"touches",objectiveIds:["oJongle"]},
+    {id:"m3",name:"Gainage",category:"physique",type:"mesure",unit:"s",objectiveIds:["oGainage"]},
+    {id:"m4",name:"Endurance / VMA",category:"physique",type:"note",unit:"",objectiveIds:["oNote"]},
+    {id:"m5",name:"Travail de finition",category:"technique",type:"note",unit:"",objectiveIds:["oNote"]},
+    {id:"m6",name:"Contrôle orienté",category:"technique",type:"note",unit:"",objectiveIds:["oNote"]},
+    {id:"m7",name:"Conduite de balle (slalom)",category:"technique",type:"mesure",unit:"s",objectiveIds:["oSlalom"]},
+    {id:"m8",name:"Passes longues (précision)",category:"technique",type:"note",unit:"",objectiveIds:["oNote"]},
+    {id:"m9",name:"Concentration",category:"mental",type:"note",unit:"",objectiveIds:["oNote"]},
+    {id:"m10",name:"Communication",category:"mental",type:"note",unit:"",objectiveIds:["oNote"]},
+    {id:"m11",name:"Gestion du stress",category:"mental",type:"note",unit:"",objectiveIds:["oNote"]},
+  ],
+  objectives:[
+    {id:"oNote",name:"Niveau visé (note /10)",min:5,max:9,direction:"up"},
+    {id:"oSprint",name:"Sprint élite (30 m)",min:4.6,max:4.0,direction:"down"},
+    {id:"oJongle",name:"Maîtrise jonglages",min:30,max:100,direction:"up"},
+    {id:"oGainage",name:"Gainage solide",min:45,max:120,direction:"up"},
+    {id:"oSlalom",name:"Slalom rapide",min:14,max:10,direction:"down"},
+  ],
+  sessions:[], entries:[], health:[],
+};
+
+const uid = () => Math.random().toString(36).slice(2,9);
+const todayISO = () => new Date().toISOString().slice(0,10);
+const fmtDate = (iso)=>{ try{return new Date(iso+"T00:00:00").toLocaleDateString("fr-FR",{day:"2-digit",month:"short"});}catch{return iso;} };
+const objsOf = (data,m)=>(m.objectiveIds||[]).map(id=>data.objectives.find(o=>o.id===id)).filter(Boolean);
+
+// ---- Firebase init ----
+let auth=null, dbRef=null, fbError=null;
+const configOK = !String(firebaseConfig.apiKey).includes("COLLE") && !String(COACH_UID).includes("COLLE");
+if (configOK) {
+  try {
+    firebase.initializeApp(firebaseConfig);
+    auth = firebase.auth();
+    dbRef = firebase.firestore().collection("app").doc("data");
+  } catch(e){ fbError = e.message; }
+}
+
+// ============================================================
+function App(){
+  const [user,setUser]=useState(undefined); // undefined=chargement, null=déconnecté
+  const [data,setData]=useState(null);
+  const [tab,setTab]=useState("modules");
+  const [saving,setSaving]=useState(false);
+  const [err,setErr]=useState(null);
+
+  useEffect(()=>{
+    if(!configOK) return;
+    const unsub = auth.onAuthStateChanged(u=>setUser(u||null));
+    return ()=>unsub();
+  },[]);
+
+  // abonnement temps réel au document
+  useEffect(()=>{
+    if(!user) { setData(null); return; }
+    const isCoach = user.uid===COACH_UID;
+    const unsub = dbRef.onSnapshot(snap=>{
+      if(snap.exists){ setData(snap.data()); }
+      else if(isCoach){ dbRef.set(DEFAULT_DATA); setData(DEFAULT_DATA); }
+      else { setData("waiting"); }
+    }, e=>setErr(e.message));
+    return ()=>unsub();
+  },[user]);
+
+  if(!configOK) return <ConfigHelp/>;
+  if(user===undefined) return <Splash/>;
+  if(user===null) return <Login err={err} setErr={setErr}/>;
+
+  const isCoach = user.uid===COACH_UID;
+
+  const persist = async(next)=>{
+    setData(next); setSaving(true);
+    try{ await dbRef.set(next); }catch(e){ setErr(e.message); }
+    setTimeout(()=>setSaving(false),500);
+  };
+
+  if(data===null) return <Splash/>;
+  if(data==="waiting") return <Waiting onLogout={()=>auth.signOut()}/>;
+
+  return (
+    <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'Hanken Grotesk',system-ui,sans-serif"}}>
+      <header style={{position:"sticky",top:0,zIndex:20,background:"linear-gradient(180deg,#10161e,#0d1117)",borderBottom:`1px solid ${C.line}`,padding:"14px 16px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,maxWidth:760,margin:"0 auto"}}>
+          <div style={{width:40,height:40,borderRadius:10,flexShrink:0,background:C.lime,color:"#0d1117",display:"grid",placeItems:"center",fontWeight:900,fontSize:22}}>⚽</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:17,letterSpacing:-0.3,lineHeight:1}}>{data.player.name}</div>
+            <div style={{color:C.dim,fontSize:12,marginTop:3}}>{data.player.level}</div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:11,fontWeight:700,color:isCoach?C.lime:C.blue}}>{isCoach?"COACH":"JOUEUR"}</div>
+            <button onClick={()=>auth.signOut()} style={{background:"transparent",border:"none",color:C.dim,fontSize:11,cursor:"pointer",padding:0,textDecoration:"underline"}}>déconnexion</button>
+          </div>
+        </div>
+      </header>
+
+      {!isCoach && (
+        <div style={{maxWidth:760,margin:"10px auto 0",padding:"0 16px"}}>
+          <div style={{background:"rgba(74,168,255,.12)",border:`1px solid ${C.blue}33`,color:C.blue,fontSize:12.5,padding:"8px 12px",borderRadius:10}}>👁️ Mode joueur — consultation seule, mise à jour en direct.</div>
+        </div>
+      )}
+
+      <main style={{maxWidth:760,margin:"0 auto",padding:"16px 16px 96px"}}>
+        {tab==="modules" && <ModulesTab data={data} persist={persist} isCoach={isCoach}/>}
+        {tab==="seances" && <SessionsTab data={data} persist={persist} isCoach={isCoach}/>}
+        {tab==="suivi" && <SuiviTab data={data}/>}
+        {tab==="sante" && <SanteTab data={data} persist={persist} isCoach={isCoach}/>}
+      </main>
+
+      <nav style={{position:"fixed",bottom:0,left:0,right:0,zIndex:20,background:"#10161e",borderTop:`1px solid ${C.line}`,display:"flex",justifyContent:"center",paddingBottom:"env(safe-area-inset-bottom)"}}>
+        <div style={{display:"flex",width:"100%",maxWidth:760}}>
+          {[["modules","Modules","🧩"],["seances","Séances","📅"],["suivi","Suivi","📈"],["sante","Santé","❤️"]].map(([id,label,ic])=>(
+            <button key={id} onClick={()=>setTab(id)} style={{flex:1,border:"none",cursor:"pointer",background:"transparent",padding:"10px 4px 12px",display:"flex",flexDirection:"column",alignItems:"center",gap:3,color:tab===id?C.lime:C.dim,borderTop:tab===id?`2px solid ${C.lime}`:"2px solid transparent",marginTop:-1}}>
+              <span style={{fontSize:18}}>{ic}</span><span style={{fontSize:11,fontWeight:700}}>{label}</span>
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      {saving && <div style={{position:"fixed",bottom:78,right:16,background:C.card,border:`1px solid ${C.line}`,color:C.dim,fontSize:12,padding:"6px 12px",borderRadius:20,zIndex:30}}>💾 Sauvegarde…</div>}
+      {err && <div onClick={()=>setErr(null)} style={{position:"fixed",bottom:78,left:16,right:16,background:C.red,color:"#fff",fontSize:12,padding:"8px 12px",borderRadius:10,zIndex:40,maxWidth:728,margin:"0 auto"}}>⚠️ {err} (toucher pour fermer)</div>}
+    </div>
+  );
+}
+
+// ============================================================
+//  LOGIN
+// ============================================================
+function Login({err,setErr}){
+  const [email,setEmail]=useState("");
+  const [pwd,setPwd]=useState("");
+  const [busy,setBusy]=useState(false);
+  const submit=async()=>{
+    setErr(null); setBusy(true);
+    try{ await auth.signInWithEmailAndPassword(email.trim(),pwd); }
+    catch(e){ setErr(traduireErreur(e.code||e.message)); }
+    setBusy(false);
+  };
+  return (
+    <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'Hanken Grotesk',sans-serif",display:"grid",placeItems:"center",padding:20}}>
+      <div style={{width:"100%",maxWidth:360}}>
+        <div style={{textAlign:"center",marginBottom:26}}>
+          <div style={{width:56,height:56,borderRadius:14,background:C.lime,color:"#0d1117",display:"grid",placeItems:"center",fontSize:30,margin:"0 auto 14px"}}>⚽</div>
+          <div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:24}}>Suivi Footballeur</div>
+          <div style={{color:C.dim,fontSize:13,marginTop:4}}>Connecte-toi pour continuer</div>
+        </div>
+        <div style={{display:"grid",gap:12}}>
+          <input style={inp} type="email" placeholder="Adresse e-mail" value={email} onChange={e=>setEmail(e.target.value)}/>
+          <input style={inp} type="password" placeholder="Mot de passe" value={pwd} onChange={e=>setPwd(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}/>
+          <button style={{...btnPrimary,padding:"12px",opacity:busy?.6:1}} disabled={busy} onClick={submit}>{busy?"Connexion…":"Se connecter"}</button>
+          {err && <div style={{color:C.red,fontSize:12.5,textAlign:"center"}}>{err}</div>}
+        </div>
+        <div style={{color:C.dim,fontSize:11.5,textAlign:"center",marginTop:18,lineHeight:1.5}}>Les comptes sont créés par le coach dans la console Firebase. Le coach peut modifier ; le joueur consulte.</div>
+      </div>
+    </div>
+  );
+}
+function traduireErreur(code){
+  const m={"auth/invalid-email":"E-mail invalide.","auth/user-not-found":"Compte introuvable.","auth/wrong-password":"Mot de passe incorrect.","auth/invalid-credential":"Identifiants incorrects.","auth/too-many-requests":"Trop de tentatives, réessaie plus tard."};
+  return m[code]||("Erreur : "+code);
+}
+
+// ============================================================
+//  MODULES  (sous-onglets Modules / Objectifs)
+// ============================================================
+function ModulesTab({data,persist,isCoach}){
+  const [sub,setSub]=useState("modules");
+  return (
+    <div>
+      <div style={{display:"flex",gap:6,marginBottom:18,background:C.bg2,borderRadius:12,padding:4,border:`1px solid ${C.line}`}}>
+        {[["modules","🧩 Modules"],["objectifs","🏁 Objectifs"]].map(([k,l])=>(
+          <button key={k} onClick={()=>setSub(k)} style={{flex:1,border:"none",cursor:"pointer",padding:"9px",borderRadius:9,fontSize:13.5,fontWeight:700,background:sub===k?C.lime:"transparent",color:sub===k?"#0d1117":C.dim}}>{l}</button>
+        ))}
+      </div>
+      {sub==="modules" ? <ModulesList data={data} persist={persist} isCoach={isCoach}/> : <ObjectivesList data={data} persist={persist} isCoach={isCoach}/>}
+    </div>
+  );
+}
+
+function ModulesList({data,persist,isCoach}){
+  const [editing,setEditing]=useState(null);
+  const [linking,setLinking]=useState(null);
+  const save=(mod)=>{ let modules; if(mod.id) modules=data.modules.map(m=>m.id===mod.id?mod:m); else modules=[...data.modules,{...mod,id:uid(),objectiveIds:[]}]; persist({...data,modules}); setEditing(null); };
+  const remove=(id)=>{ if(!window.confirm("Supprimer ce module et ses mesures ?"))return; persist({...data,modules:data.modules.filter(m=>m.id!==id),entries:data.entries.filter(e=>e.moduleId!==id),sessions:data.sessions.map(s=>({...s,moduleIds:s.moduleIds.filter(x=>x!==id)}))}); };
+  const setLinks=(moduleId,objectiveIds)=>persist({...data,modules:data.modules.map(m=>m.id===moduleId?{...m,objectiveIds}:m)});
+  return (
+    <div>
+      <SectionTitle title="Modules" action={isCoach&&<AddBtn onClick={()=>setEditing({})} label="Module"/>}/>
+      {Object.entries(CAT).map(([key,cat])=>{
+        const mods=data.modules.filter(m=>m.category===key);
+        return (
+          <div key={key} style={{marginBottom:22}}>
+            <CatHeader cat={cat} count={mods.length}/>
+            {mods.length===0 && <Empty txt="Aucun module dans cet axe."/>}
+            <div style={{display:"grid",gap:10}}>
+              {mods.map(m=>{
+                const ents=data.entries.filter(e=>e.moduleId===m.id);
+                const last=ents.length?ents[ents.length-1].value:null;
+                const objs=objsOf(data,m);
+                return (
+                  <div key={m.id} style={cardStyle}>
+                    <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontWeight:700,fontSize:15}}>{m.name}</div>
+                        <div style={{color:C.dim,fontSize:12.5,marginTop:4}}>{m.type==="note"?"Note /10":`Mesure (${m.unit||"—"})`}</div>
+                        <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
+                          {objs.length===0 && <span style={{fontSize:11.5,color:C.dim,fontStyle:"italic"}}>aucun objectif lié</span>}
+                          {objs.map(o=><span key={o.id} style={{fontSize:11.5,fontWeight:700,color:cat.color,background:cat.color+"1a",border:`1px solid ${cat.color}44`,borderRadius:16,padding:"3px 9px"}}>🏁 {o.name} ({o.min}→{o.max})</span>)}
+                        </div>
+                      </div>
+                      <div style={{textAlign:"right"}}>
+                        <div style={{fontSize:11,color:C.dim}}>dernier</div>
+                        <div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:20,color:cat.color}}>{last??"—"}</div>
+                      </div>
+                    </div>
+                    {isCoach && (
+                      <div style={{display:"flex",gap:8,marginTop:12,flexWrap:"wrap"}}>
+                        <SmallBtn onClick={()=>setLinking(m)} accent>🏁 Lier des objectifs</SmallBtn>
+                        <SmallBtn onClick={()=>setEditing(m)}>Modifier</SmallBtn>
+                        <SmallBtn onClick={()=>remove(m.id)} danger>Supprimer</SmallBtn>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+      {editing && <ModuleEditor module={editing} onSave={save} onCancel={()=>setEditing(null)}/>}
+      {linking && <LinkObjectives module={linking} data={data} persist={persist} onSetLinks={setLinks} onClose={()=>setLinking(null)}/>}
+    </div>
+  );
+}
+
+function ModuleEditor({module,onSave,onCancel}){
+  const [f,setF]=useState({id:module.id||null,name:module.name||"",category:module.category||"physique",type:module.type||"note",unit:module.unit||"",objectiveIds:module.objectiveIds||[]});
+  const set=(k,v)=>setF(p=>({...p,[k]:v}));
+  return (
+    <Modal title={module.id?"Modifier le module":"Nouveau module"} onClose={onCancel}>
+      <Field label="Nom du module"><input style={inp} value={f.name} onChange={e=>set("name",e.target.value)} placeholder="ex. Travail de finition"/></Field>
+      <Field label="Axe"><div style={{display:"flex",gap:8}}>{Object.entries(CAT).map(([k,c])=><Chip key={k} active={f.category===k} color={c.color} onClick={()=>set("category",k)}>{c.emoji} {c.label}</Chip>)}</div></Field>
+      <Field label="Type de mesure"><div style={{display:"flex",gap:8}}><Chip active={f.type==="note"} color={C.lime} onClick={()=>set("type","note")}>Note /10</Chip><Chip active={f.type==="mesure"} color={C.lime} onClick={()=>set("type","mesure")}>Grandeur physique</Chip></div></Field>
+      {f.type==="mesure" && <Field label="Unité"><input style={inp} value={f.unit} onChange={e=>set("unit",e.target.value)} placeholder="ex. s, touches, m, reps"/></Field>}
+      <div style={{fontSize:12,color:C.dim,marginTop:4}}>💡 Les objectifs se lient après création, via « Lier des objectifs ».</div>
+      <div style={{display:"flex",gap:10,marginTop:18}}><button style={{...btnPrimary,flex:1}} disabled={!f.name.trim()} onClick={()=>onSave(f)}>Enregistrer</button><button style={btnGhost} onClick={onCancel}>Annuler</button></div>
+    </Modal>
+  );
+}
+
+function LinkObjectives({module,data,persist,onSetLinks,onClose}){
+  const [sel,setSel]=useState(module.objectiveIds||[]);
+  const [creating,setCreating]=useState(false);
+  const cat=CAT[module.category];
+  const toggle=(id)=>setSel(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
+  const createObj=(o)=>{ const n={...o,id:uid()}; persist({...data,objectives:[...data.objectives,n]}); setSel(p=>[...p,n.id]); setCreating(false); };
+  return (
+    <Modal title={`Objectifs liés — ${module.name}`} onClose={onClose}>
+      <div style={{fontSize:12.5,color:C.dim,marginBottom:12}}>Coche les objectifs à suivre. Un même objectif peut servir à plusieurs modules.</div>
+      <div style={{display:"grid",gap:8,marginBottom:14}}>
+        {data.objectives.length===0 && <Empty txt="Aucun objectif créé."/>}
+        {data.objectives.map(o=>{ const active=sel.includes(o.id); return (
+          <button key={o.id} onClick={()=>toggle(o.id)} style={{textAlign:"left",cursor:"pointer",background:active?cat.color+"1a":C.bg,border:`1px solid ${active?cat.color:C.line}`,borderRadius:10,padding:"11px 13px",color:C.text,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+            <span><span style={{fontWeight:700,fontSize:14}}>{o.name}</span><br/><span style={{fontSize:12,color:C.dim}}>{o.min} → {o.max} {o.direction==="up"?"↑":"↓"}</span></span>
+            <span style={{width:22,height:22,borderRadius:6,border:`1px solid ${active?cat.color:C.line}`,background:active?cat.color:"transparent",color:"#0d1117",display:"grid",placeItems:"center",fontWeight:900,fontSize:14}}>{active?"✓":""}</span>
+          </button>
+        );})}
+      </div>
+      <SmallBtn onClick={()=>setCreating(true)} accent>+ Créer un nouvel objectif</SmallBtn>
+      <div style={{display:"flex",gap:10,marginTop:18}}><button style={{...btnPrimary,flex:1}} onClick={()=>{onSetLinks(module.id,sel);onClose();}}>Valider les liens</button><button style={btnGhost} onClick={onClose}>Annuler</button></div>
+      {creating && <ObjectiveEditor objective={{}} onSave={createObj} onCancel={()=>setCreating(false)}/>}
+    </Modal>
+  );
+}
+
+function ObjectivesList({data,persist,isCoach}){
+  const [editing,setEditing]=useState(null);
+  const save=(o)=>{ let objectives; if(o.id) objectives=data.objectives.map(x=>x.id===o.id?o:x); else objectives=[...data.objectives,{...o,id:uid()}]; persist({...data,objectives}); setEditing(null); };
+  const remove=(id)=>{ if(!window.confirm("Supprimer cet objectif ? Il sera retiré des modules liés."))return; persist({...data,objectives:data.objectives.filter(o=>o.id!==id),modules:data.modules.map(m=>({...m,objectiveIds:(m.objectiveIds||[]).filter(x=>x!==id)}))}); };
+  return (
+    <div>
+      <SectionTitle title="Objectifs" action={isCoach&&<AddBtn onClick={()=>setEditing({})} label="Objectif"/>}/>
+      {data.objectives.length===0 && <Empty txt="Aucun objectif. Crées-en un, puis lie-le à des modules."/>}
+      <div style={{display:"grid",gap:10}}>
+        {data.objectives.map(o=>{
+          const linked=data.modules.filter(m=>(m.objectiveIds||[]).includes(o.id));
+          return (
+            <div key={o.id} style={cardStyle}>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:15}}>🏁 {o.name}</div>
+                <div style={{color:C.dim,fontSize:12.5,marginTop:4}}>Cible {o.min} → {o.max} • {o.direction==="up"?"↑ plus haut = mieux":"↓ plus bas = mieux"}</div>
+                <div style={{marginTop:8,fontSize:12,color:C.dim}}>{linked.length===0?"Lié à aucun module":`Lié à ${linked.length} module(s) : `}{linked.map(m=><span key={m.id} style={{color:CAT[m.category].color,fontWeight:600}}>{m.name}{" · "}</span>)}</div>
+              </div>
+              {isCoach && <div style={{display:"flex",gap:8,marginTop:12}}><SmallBtn onClick={()=>setEditing(o)}>Modifier</SmallBtn><SmallBtn onClick={()=>remove(o.id)} danger>Supprimer</SmallBtn></div>}
+            </div>
+          );
+        })}
+      </div>
+      {editing && <ObjectiveEditor objective={editing} onSave={save} onCancel={()=>setEditing(null)}/>}
+    </div>
+  );
+}
+
+function ObjectiveEditor({objective,onSave,onCancel}){
+  const [f,setF]=useState({id:objective.id||null,name:objective.name||"",min:objective.min??5,max:objective.max??9,direction:objective.direction||"up"});
+  const set=(k,v)=>setF(p=>({...p,[k]:v}));
+  return (
+    <Modal title={objective.id?"Modifier l'objectif":"Nouvel objectif"} onClose={onCancel}>
+      <Field label="Nom de l'objectif"><input style={inp} value={f.name} onChange={e=>set("name",e.target.value)} placeholder="ex. Niveau visé, Sprint élite…"/></Field>
+      <div style={{display:"flex",gap:12}}>
+        <Field label="Valeur mini" flex><input type="number" step="any" style={inp} value={f.min} onChange={e=>set("min",parseFloat(e.target.value))}/></Field>
+        <Field label="Valeur maxi" flex><input type="number" step="any" style={inp} value={f.max} onChange={e=>set("max",parseFloat(e.target.value))}/></Field>
+      </div>
+      <Field label="Sens de progression"><div style={{display:"flex",gap:8}}><Chip active={f.direction==="up"} color={C.lime} onClick={()=>set("direction","up")}>↑ Plus haut = mieux</Chip><Chip active={f.direction==="down"} color={C.lime} onClick={()=>set("direction","down")}>↓ Plus bas = mieux</Chip></div></Field>
+      <div style={{display:"flex",gap:10,marginTop:18}}><button style={{...btnPrimary,flex:1}} disabled={!f.name.trim()} onClick={()=>onSave(f)}>Enregistrer</button><button style={btnGhost} onClick={onCancel}>Annuler</button></div>
+    </Modal>
+  );
+}
+
+// ============================================================
+//  SÉANCES
+// ============================================================
+function SessionsTab({data,persist,isCoach}){
+  const [creating,setCreating]=useState(false);
+  const [openId,setOpenId]=useState(null);
+  const sessions=[...data.sessions].sort((a,b)=>b.date.localeCompare(a.date));
+  const addSession=(s)=>{ persist({...data,sessions:[...data.sessions,{...s,id:uid()}]}); setCreating(false); };
+  const removeSession=(id)=>{ if(!window.confirm("Supprimer cette séance ?"))return; persist({...data,sessions:data.sessions.filter(s=>s.id!==id),entries:data.entries.map(e=>e.sessionId===id?{...e,sessionId:null}:e)}); };
+  return (
+    <div>
+      <SectionTitle title="Journées d'entraînement" action={isCoach&&<AddBtn onClick={()=>setCreating(true)} label="Séance"/>}/>
+      {sessions.length===0 && <Empty txt="Aucune séance planifiée."/>}
+      <div style={{display:"grid",gap:10}}>
+        {sessions.map(s=>{
+          const mods=data.modules.filter(m=>s.moduleIds.includes(m.id));
+          const done=data.entries.filter(e=>e.sessionId===s.id).length;
+          return (
+            <div key={s.id} style={cardStyle}>
+              <div style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}} onClick={()=>setOpenId(openId===s.id?null:s.id)}>
+                <div style={{textAlign:"center",background:C.bg2,borderRadius:8,padding:"6px 10px",minWidth:50}}>
+                  <div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:18,color:C.lime,lineHeight:1}}>{fmtDate(s.date).split(" ")[0]}</div>
+                  <div style={{fontSize:10,color:C.dim,textTransform:"uppercase"}}>{fmtDate(s.date).split(" ")[1]}</div>
+                </div>
+                <div style={{flex:1}}><div style={{fontWeight:700,fontSize:15}}>{s.title||"Séance"}</div><div style={{color:C.dim,fontSize:12.5,marginTop:3}}>{mods.length} module(s) • {done} mesure(s)</div></div>
+                <span style={{color:C.dim,fontSize:18}}>{openId===s.id?"▾":"▸"}</span>
+              </div>
+              {openId===s.id && (
+                <div style={{marginTop:14,borderTop:`1px solid ${C.line}`,paddingTop:14}}>
+                  {mods.length===0 && <Empty txt="Aucun module dans cette séance."/>}
+                  <div style={{display:"grid",gap:10}}>{mods.map(m=><SessionModuleRow key={m.id} module={m} session={s} data={data} persist={persist} isCoach={isCoach}/>)}</div>
+                  {isCoach && <div style={{marginTop:12}}><SmallBtn onClick={()=>removeSession(s.id)} danger>Supprimer la séance</SmallBtn></div>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {creating && <SessionCreator data={data} onSave={addSession} onCancel={()=>setCreating(false)}/>}
+    </div>
+  );
+}
+
+function SessionModuleRow({module,session,data,persist,isCoach}){
+  const [val,setVal]=useState("");
+  const existing=data.entries.find(e=>e.sessionId===session.id&&e.moduleId===module.id);
+  const cat=CAT[module.category];
+  const objs=objsOf(data,module);
+  const curVal=existing?existing.value:null;
+  const saveVal=()=>{ const v=parseFloat(val); if(isNaN(v))return; let entries; if(existing) entries=data.entries.map(e=>e.id===existing.id?{...e,value:v}:e); else entries=[...data.entries,{id:uid(),moduleId:module.id,sessionId:session.id,date:session.date,value:v}]; persist({...data,entries}); setVal(""); };
+  return (
+    <div style={{background:C.bg2,borderRadius:10,padding:12,borderLeft:`3px solid ${cat.color}`}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}><div style={{fontSize:14,fontWeight:600}}>{module.name}</div><div style={{fontSize:11,color:C.dim}}>{module.type==="note"?"/10":module.unit}</div></div>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8}}>
+        <div style={{flex:1,display:"grid",gap:6}}>
+          {objs.length===0 && <div style={{fontSize:11.5,color:C.dim,fontStyle:"italic"}}>aucun objectif lié{curVal!=null?` — valeur : ${curVal}`:""}</div>}
+          {objs.map(o=><Gauge key={o.id} objective={o} value={curVal} color={cat.color}/>)}
+        </div>
+        {isCoach && <div style={{display:"flex",gap:6}}><input type="number" step="any" value={val} onChange={e=>setVal(e.target.value)} placeholder={existing?String(existing.value):"valeur"} style={{...inp,width:78,padding:"8px 10px"}}/><button style={{...btnPrimary,padding:"8px 12px"}} onClick={saveVal}>OK</button></div>}
+        {!isCoach && curVal!=null && <div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:18,color:cat.color}}>{curVal}</div>}
+      </div>
+    </div>
+  );
+}
+
+function SessionCreator({data,onSave,onCancel}){
+  const [date,setDate]=useState(todayISO());
+  const [title,setTitle]=useState("");
+  const [picked,setPicked]=useState([]);
+  const toggle=(id)=>setPicked(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
+  return (
+    <Modal title="Nouvelle journée d'entraînement" onClose={onCancel}>
+      <div style={{display:"flex",gap:12}}><Field label="Date" flex><input type="date" style={inp} value={date} onChange={e=>setDate(e.target.value)}/></Field><Field label="Intitulé" flex><input style={inp} value={title} onChange={e=>setTitle(e.target.value)} placeholder="ex. Séance technique"/></Field></div>
+      <Field label="Modules à travailler">
+        {Object.entries(CAT).map(([k,c])=>{ const mods=data.modules.filter(m=>m.category===k); if(!mods.length)return null; return (
+          <div key={k} style={{marginBottom:10}}><div style={{fontSize:11,color:c.color,fontWeight:700,textTransform:"uppercase",marginBottom:6}}>{c.label}</div><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{mods.map(m=><Chip key={m.id} active={picked.includes(m.id)} color={c.color} onClick={()=>toggle(m.id)}>{m.name}</Chip>)}</div></div>
+        );})}
+      </Field>
+      <div style={{display:"flex",gap:10,marginTop:8}}><button style={{...btnPrimary,flex:1}} disabled={picked.length===0} onClick={()=>onSave({date,title,moduleIds:picked})}>Créer la séance</button><button style={btnGhost} onClick={onCancel}>Annuler</button></div>
+    </Modal>
+  );
+}
+
+// ============================================================
+//  SUIVI
+// ============================================================
+function SuiviTab({data}){
+  const [cat,setCat]=useState("all");
+  const mods=data.modules.filter(m=>cat==="all"||m.category===cat);
+  return (
+    <div>
+      <SectionTitle title="Suivi & objectifs"/>
+      <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
+        <Chip active={cat==="all"} color={C.lime} onClick={()=>setCat("all")}>Tout</Chip>
+        {Object.entries(CAT).map(([k,c])=><Chip key={k} active={cat===k} color={c.color} onClick={()=>setCat(k)}>{c.emoji} {c.label}</Chip>)}
+      </div>
+      <div style={{display:"grid",gap:14}}>{mods.map(m=><ModuleChart key={m.id} module={m} data={data}/>)}</div>
+    </div>
+  );
+}
+
+function ModuleChart({module,data}){
+  const cat=CAT[module.category];
+  const objs=objsOf(data,module);
+  const sorted=[...data.entries.filter(e=>e.moduleId===module.id)].sort((a,b)=>a.date.localeCompare(b.date));
+  const pts=sorted.map(e=>({label:fmtDate(e.date),value:e.value}));
+  const last=pts.length?pts[pts.length-1].value:null;
+  return (
+    <div style={cardStyle}>
+      <div style={{marginBottom:10}}>
+        <div style={{fontWeight:700,fontSize:15}}>{module.name}</div>
+        <div style={{fontSize:12,color:C.dim,marginTop:3}}><span style={{color:cat.color}}>{cat.emoji} {cat.label}</span> • {module.type==="mesure"?(module.unit||"mesure"):"note /10"}</div>
+      </div>
+      {objs.length>0 && <div style={{display:"grid",gap:6,marginBottom:12}}>{objs.map(o=>(
+        <div key={o.id}><div style={{fontSize:11.5,color:C.dim,marginBottom:3}}>🏁 {o.name} ({o.min}→{o.max})</div><Gauge objective={o} value={last} color={cat.color}/></div>
+      ))}</div>}
+      {pts.length===0 ? <Empty txt="Aucune mesure encore saisie."/> : <SvgLineChart pts={pts} objs={objs} color={cat.color}/>}
+    </div>
+  );
+}
+
+// --- Graphique SVG (sans dépendance) ---
+function SvgLineChart({pts,objs,color}){
+  const W=560,H=200,pL=38,pR=12,pT=12,pB=28;
+  const vals=pts.map(p=>p.value);
+  const objVals=(objs||[]).flatMap(o=>[o.min,o.max]);
+  const all=[...vals,...objVals];
+  let lo=Math.min(...all), hi=Math.max(...all);
+  if(!isFinite(lo)){lo=0;hi=10;}
+  if(lo===hi){lo-=1;hi+=1;}
+  const pad=(hi-lo)*0.15; lo-=pad; hi+=pad;
+  const X=i=>pL+(pts.length<=1?(W-pL-pR)/2:(i/(pts.length-1))*(W-pL-pR));
+  const Y=v=>pT+(1-(v-lo)/(hi-lo))*(H-pT-pB);
+  const path=pts.map((p,i)=>`${i?"L":"M"}${X(i).toFixed(1)},${Y(p.value).toFixed(1)}`).join(" ");
+  const ticks=[lo,(lo+hi)/2,hi];
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto",display:"block"}}>
+      {ticks.map((t,i)=>(<g key={i}><line x1={pL} y1={Y(t)} x2={W-pR} y2={Y(t)} stroke={C.line} strokeDasharray="3 3"/><text x={pL-6} y={Y(t)+4} fill={C.dim} fontSize="11" textAnchor="end">{(+t.toFixed(1))}</text></g>))}
+      {(objs||[]).map(o=>(<rect key={o.id} x={pL} y={Y(Math.max(o.min,o.max))} width={W-pL-pR} height={Math.abs(Y(o.min)-Y(o.max))} fill={color} opacity="0.07"/>))}
+      {(objs||[]).map(o=>(<line key={o.id+"l"} x1={pL} y1={Y(o.max)} x2={W-pR} y2={Y(o.max)} stroke={color} strokeDasharray="5 4" opacity="0.7"/>))}
+      <path d={path} fill="none" stroke={color} strokeWidth="2.5"/>
+      {pts.map((p,i)=>(<g key={i}><circle cx={X(i)} cy={Y(p.value)} r="3.5" fill={color}><title>{p.label} : {p.value}</title></circle>{(i===0||i===pts.length-1)&&<text x={X(i)} y={H-8} fill={C.dim} fontSize="11" textAnchor={i===0?"start":"end"}>{p.label}</text>}</g>))}
+    </svg>
+  );
+}
+
+function Gauge({objective,value,color}){
+  const lo=Math.min(objective.min,objective.max), hi=Math.max(objective.min,objective.max);
+  let pct=0; if(value!=null&&hi!==lo) pct=((value-lo)/(hi-lo))*100;
+  let progress=objective.direction==="down"?100-pct:pct; progress=Math.max(0,Math.min(100,progress));
+  const reached=value!=null&&(objective.direction==="up"?value>=objective.max:value<=objective.max);
+  return (
+    <div style={{flex:1,minWidth:90}}>
+      <div style={{height:8,background:C.bg,borderRadius:4,overflow:"hidden",border:`1px solid ${C.line}`}}><div style={{width:`${value==null?0:progress}%`,height:"100%",background:reached?C.limeDk:color,transition:"width .3s"}}/></div>
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:4,fontSize:10.5,color:C.dim}}><span>{objective.min}</span><span style={{color:value==null?C.dim:reached?C.limeDk:color,fontWeight:700}}>{value==null?"—":value}{reached?" ✓":""}</span><span>{objective.max}</span></div>
+    </div>
+  );
+}
+
+// ============================================================
+//  SANTÉ
+// ============================================================
+function SanteTab({data,persist,isCoach}){
+  const [taille,setTaille]=useState("");
+  const [poids,setPoids]=useState("");
+  const [date,setDate]=useState(todayISO());
+  const health=[...data.health].sort((a,b)=>a.date.localeCompare(b.date));
+  const last=health.length?health[health.length-1]:null;
+  const imc=last&&last.taille&&last.poids?(last.poids/Math.pow(last.taille/100,2)).toFixed(1):null;
+  const add=()=>{ const t=parseFloat(taille),p=parseFloat(poids); if(isNaN(t)&&isNaN(p))return; const entry={id:uid(),date,taille:isNaN(t)?(last?.taille??null):t,poids:isNaN(p)?null:p}; persist({...data,health:[...data.health.filter(h=>h.date!==date),entry]}); setPoids(""); };
+  const poidsPts=health.filter(h=>h.poids!=null).map(h=>({label:fmtDate(h.date),value:h.poids}));
+  return (
+    <div>
+      <SectionTitle title="Suivi santé"/>
+      <div style={{display:"flex",gap:10,marginBottom:16}}><Stat label="Taille" value={last?.taille?`${last.taille} cm`:"—"}/><Stat label="Poids" value={last?.poids?`${last.poids} kg`:"—"}/><Stat label="IMC" value={imc??"—"} accent/></div>
+      {isCoach && (
+        <div style={{...cardStyle,marginBottom:16}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>Nouvelle mesure</div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}><Field label="Date" flex><input type="date" style={inp} value={date} onChange={e=>setDate(e.target.value)}/></Field><Field label="Taille (cm)" flex><input type="number" step="any" style={inp} value={taille} onChange={e=>setTaille(e.target.value)} placeholder={last?.taille?String(last.taille):"ex. 175"}/></Field><Field label="Poids (kg)" flex><input type="number" step="any" style={inp} value={poids} onChange={e=>setPoids(e.target.value)} placeholder="ex. 65"/></Field></div>
+          <button style={{...btnPrimary,marginTop:12}} onClick={add}>Enregistrer</button>
+        </div>
+      )}
+      {poidsPts.length===0 ? <Empty txt="Aucune mesure santé saisie."/> : <div style={cardStyle}><div style={{fontSize:13,fontWeight:700,marginBottom:10}}>Évolution du poids (kg)</div><SvgLineChart pts={poidsPts} objs={[]} color={C.red}/></div>}
+    </div>
+  );
+}
+
+// ============================================================
+//  UI helpers
+// ============================================================
+const cardStyle={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:14};
+const inp={width:"100%",background:C.bg,border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 12px",color:C.text,fontSize:14,outline:"none",boxSizing:"border-box"};
+const btnPrimary={background:C.lime,color:"#0d1117",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:14,cursor:"pointer"};
+const btnGhost={background:"transparent",color:C.dim,border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 16px",fontWeight:600,fontSize:14,cursor:"pointer"};
+
+function SectionTitle({title,action}){return <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><h2 style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:22,letterSpacing:-0.5,margin:0}}>{title}</h2>{action}</div>;}
+function CatHeader({cat,count}){return <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}><span style={{fontSize:13,fontWeight:800,color:cat.color,textTransform:"uppercase",letterSpacing:0.5}}>{cat.emoji} {cat.label}</span><span style={{flex:1,height:1,background:C.line}}/><span style={{fontSize:12,color:C.dim}}>{count}</span></div>;}
+function AddBtn({onClick,label}){return <button style={btnPrimary} onClick={onClick}>+ {label}</button>;}
+function SmallBtn({children,onClick,danger,accent}){const col=danger?C.red:accent?C.lime:C.dim;return <button onClick={onClick} style={{background:accent?C.lime+"14":"transparent",border:`1px solid ${col}${danger||accent?"55":""}`,color:col,borderRadius:8,padding:"6px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{children}</button>;}
+function Chip({children,active,color,onClick}){return <button onClick={onClick} style={{background:active?color:"transparent",color:active?"#0d1117":C.dim,border:`1px solid ${active?color:C.line}`,borderRadius:20,padding:"7px 13px",fontSize:12.5,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>{children}</button>;}
+function Field({label,children,flex}){return <div style={{marginBottom:14,flex:flex?1:"none"}}><label style={{display:"block",fontSize:12,color:C.dim,fontWeight:600,marginBottom:6}}>{label}</label>{children}</div>;}
+function Stat({label,value,accent}){return <div style={{...cardStyle,flex:1,textAlign:"center",padding:14}}><div style={{fontSize:11,color:C.dim,textTransform:"uppercase",letterSpacing:0.5}}>{label}</div><div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:22,color:accent?C.lime:C.text,marginTop:4}}>{value}</div></div>;}
+function Empty({txt}){return <div style={{color:C.dim,fontSize:13,padding:"14px 0",textAlign:"center"}}>{txt}</div>;}
+function Modal({title,children,onClose}){
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",zIndex:50,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:C.bg2,borderRadius:"18px 18px 0 0",border:`1px solid ${C.line}`,width:"100%",maxWidth:560,maxHeight:"88vh",overflowY:"auto",padding:20}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}><h3 style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:19,margin:0}}>{title}</h3><button onClick={onClose} style={{background:"transparent",border:"none",color:C.dim,fontSize:24,cursor:"pointer",lineHeight:1}}>×</button></div>
+        {children}
+      </div>
+    </div>
+  );
+}
+function Splash(){return <div style={{minHeight:"100vh",background:C.bg,color:C.dim,display:"grid",placeItems:"center",fontFamily:"sans-serif"}}>Chargement…</div>;}
+function Waiting({onLogout}){return <div style={{minHeight:"100vh",background:C.bg,color:C.text,display:"grid",placeItems:"center",fontFamily:"'Hanken Grotesk',sans-serif",padding:24,textAlign:"center"}}><div><div style={{fontSize:34,marginBottom:12}}>⏳</div><div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:20}}>En attente du coach</div><div style={{color:C.dim,fontSize:13,marginTop:8,maxWidth:300}}>Le suivi apparaîtra dès que le coach aura saisi les premières données.</div><button style={{...btnGhost,marginTop:18}} onClick={onLogout}>Déconnexion</button></div></div>;}
+function ConfigHelp(){return <div style={{minHeight:"100vh",background:C.bg,color:C.text,display:"grid",placeItems:"center",fontFamily:"'Hanken Grotesk',sans-serif",padding:24,textAlign:"center"}}><div style={{maxWidth:380}}><div style={{fontSize:34,marginBottom:12}}>⚙️</div><div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:20}}>Configuration requise</div><div style={{color:C.dim,fontSize:13.5,marginTop:10,lineHeight:1.6}}>Ouvre ce fichier et remplis le bloc <b style={{color:C.lime}}>firebaseConfig</b> et <b style={{color:C.lime}}>COACH_UID</b> avec les informations de votre projet Firebase (clés web et UID du compte coach).</div></div></div>;}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
