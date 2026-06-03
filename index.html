@@ -4,31 +4,19 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>Suivi Footballeur</title>
-
-<!-- ======================================================= -->
-<!--  FONTS                                                   -->
-<!-- ======================================================= -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@800;900&family=Hanken+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
-
-<!-- ======================================================= -->
-<!--  FIREBASE (compat – globals)                             -->
-<!-- ======================================================= -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-
-<!-- ======================================================= -->
-<!--  REACT + BABEL                                           -->
-<!-- ======================================================= -->
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
 <style>
   html,body{margin:0;padding:0;background:#0d1117;}
   *{-webkit-tap-highlight-color:transparent;box-sizing:border-box;}
   input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.6);}
+  textarea,input{font-family:inherit;}
   ::-webkit-scrollbar{width:0;}
 </style>
 </head>
@@ -36,10 +24,9 @@
 <div id="root"></div>
 
 <!-- ========================================================= -->
-<!--  CONFIGURATION — À REMPLIR avec les informations de votre projet Firebase  -->
+<!-- CONFIGURATION — informations du projet Firebase           -->
 <!-- ========================================================= -->
 <script>
-  // 1) Configuration web Firebase
   const firebaseConfig = {
     apiKey: "AIzaSyAlQVfdAODfs_zcwLfYDq18oz4cDjXO1jU",
     authDomain: "appli-sport-44242.firebaseapp.com",
@@ -48,89 +35,92 @@
     messagingSenderId: "242345632976",
     appId: "1:242345632976:web:639d6c3ab0ab5fc8232ad5"
   };
-  // 2) UID du compte COACH (celui qui aura le droit de modifier)
   const COACH_UID = "SJxh30lKnChAfQlKTT59HciW5s23";
 </script>
 
-<!-- ========================================================= -->
-<!--  APPLICATION                                              -->
-<!-- ========================================================= -->
 <script type="text/babel">
 const { useState, useEffect } = React;
 
 const C = {
   bg:"#0d1117", bg2:"#161b22", card:"#1c232d", line:"#2a3340",
   text:"#e7edf3", dim:"#8a97a6", lime:"#c6ff3e", limeDk:"#9ad400",
-  orange:"#ff7a3c", blue:"#4aa8ff", red:"#ff5470",
+  orange:"#ff7a3c", blue:"#4aa8ff", red:"#ff5470", violet:"#b07cff", teal:"#5ad1c0",
 };
+// Axes des INDICATEURS (mesurés)
 const CAT = {
   physique:{label:"Physique",color:C.orange,emoji:"⚡"},
   technique:{label:"Technique",color:C.lime,emoji:"🎯"},
   mental:{label:"Mental",color:C.blue,emoji:"🧠"},
 };
+// Catégories des EXERCICES (activités)
+const EXCAT = {
+  echauffement:{label:"Échauffement",color:C.orange,emoji:"🔥"},
+  physique:{label:"Physique",color:C.blue,emoji:"💪"},
+  technique:{label:"Technique",color:C.lime,emoji:"🎯"},
+  tactique:{label:"Tactique",color:C.violet,emoji:"🧭"},
+  mental:{label:"Mental",color:C.red,emoji:"🧠"},
+  recup:{label:"Retour au calme",color:C.teal,emoji:"🧊"},
+};
 
 const DEFAULT_DATA = {
   player:{ name:"Mon joueur", level:"Suivi entraînement footballeur", poste:"", naissance:"" },
-  modules:[
-    {id:"m1",name:"Sprint 30 m",category:"physique",type:"mesure",unit:"s",objectiveIds:["oSprint"]},
-    {id:"m2",name:"Jonglages",category:"physique",type:"mesure",unit:"touches",objectiveIds:["oJongle"]},
-    {id:"m3",name:"Gainage",category:"physique",type:"mesure",unit:"s",objectiveIds:["oGainage"]},
-    {id:"m4",name:"Endurance / VMA",category:"physique",type:"note",unit:"",objectiveIds:["oNote"]},
-    {id:"m5",name:"Travail de finition",category:"technique",type:"note",unit:"",objectiveIds:["oNote"]},
-    {id:"m6",name:"Contrôle orienté",category:"technique",type:"note",unit:"",objectiveIds:["oNote"]},
-    {id:"m7",name:"Conduite de balle (slalom)",category:"technique",type:"mesure",unit:"s",objectiveIds:["oSlalom"]},
-    {id:"m8",name:"Passes longues (précision)",category:"technique",type:"note",unit:"",objectiveIds:["oNote"]},
-    {id:"m9",name:"Concentration",category:"mental",type:"note",unit:"",objectiveIds:["oNote"]},
-    {id:"m10",name:"Communication",category:"mental",type:"note",unit:"",objectiveIds:["oNote"]},
-    {id:"m11",name:"Gestion du stress",category:"mental",type:"note",unit:"",objectiveIds:["oNote"]},
-  ],
-  objectives:[
-    {id:"oNote",name:"Niveau visé (note /10)",min:5,max:9,direction:"up"},
-    {id:"oSprint",name:"Sprint élite (30 m)",min:4.6,max:4.0,direction:"down"},
-    {id:"oJongle",name:"Maîtrise jonglages",min:30,max:100,direction:"up"},
-    {id:"oGainage",name:"Gainage solide",min:45,max:120,direction:"up"},
-    {id:"oSlalom",name:"Slalom rapide",min:14,max:10,direction:"down"},
-  ],
-  sessions:[], entries:[], health:[],
+  exercises:[], indicators:[], readings:[], sessions:[], health:[], vmaTests:[], v:2,
 };
 
 const uid = () => Math.random().toString(36).slice(2,9);
 const todayISO = () => new Date().toISOString().slice(0,10);
 const fmtDate = (iso)=>{ try{return new Date(iso+"T00:00:00").toLocaleDateString("fr-FR",{day:"2-digit",month:"short"});}catch{return iso;} };
-const objsOf = (data,m)=>(m.objectiveIds||[]).map(id=>data.objectives.find(o=>o.id===id)).filter(Boolean);
+const readingsOf = (data,id)=>[...(data.readings||[]).filter(r=>r.indicatorId===id)].sort((a,b)=>a.date.localeCompare(b.date));
+
+// Migration ancien modèle (modules/objectives/entries) -> nouveau (indicators/readings/exercises)
+function migrate(d){
+  if(!d) return DEFAULT_DATA;
+  if(d.v===2) return d;
+  const p=d.player||{};
+  const player={name:p.name||"Mon joueur",level:p.level||"Suivi entraînement footballeur",poste:p.poste||"",naissance:p.naissance||""};
+  const objectives=d.objectives||[];
+  const indicators=(d.modules||[]).map(m=>{
+    const oid=(m.objectiveIds||[])[0];
+    const o=oid?objectives.find(x=>x.id===oid):null;
+    return {id:m.id,name:m.name,category:m.category||"physique",type:m.type||"note",unit:m.unit||"",
+      hasGoal:!!o,min:o?o.min:0,max:o?o.max:10,direction:o?o.direction:"up"};
+  });
+  const readings=(d.entries||[]).map(e=>({id:e.id,indicatorId:e.moduleId,date:e.date,value:e.value,sessionId:e.sessionId||null}));
+  const sessions=(d.sessions||[]).map(s=>({id:s.id,date:s.date,title:s.title||"",exerciseIds:[],comment:"",done:{}}));
+  return {player,exercises:[],indicators,readings,sessions,health:d.health||[],vmaTests:d.vmaTests||[],v:2};
+}
 
 // ---- Firebase init ----
-let auth=null, dbRef=null, fbError=null;
+let auth=null, dbRef=null;
 const configOK = !String(firebaseConfig.apiKey).includes("COLLE") && !String(COACH_UID).includes("COLLE");
 if (configOK) {
   try {
     firebase.initializeApp(firebaseConfig);
     auth = firebase.auth();
     dbRef = firebase.firestore().collection("app").doc("data");
-  } catch(e){ fbError = e.message; }
+  } catch(e){}
 }
 
 // ============================================================
 function App(){
-  const [user,setUser]=useState(undefined); // undefined=chargement, null=déconnecté
+  const [user,setUser]=useState(undefined);
   const [data,setData]=useState(null);
-  const [tab,setTab]=useState("modules");
+  const [tab,setTab]=useState("seances");
   const [saving,setSaving]=useState(false);
   const [err,setErr]=useState(null);
   const [editingPlayer,setEditingPlayer]=useState(false);
 
-  useEffect(()=>{
-    if(!configOK) return;
-    const unsub = auth.onAuthStateChanged(u=>setUser(u||null));
-    return ()=>unsub();
-  },[]);
+  useEffect(()=>{ if(!configOK) return; const unsub=auth.onAuthStateChanged(u=>setUser(u||null)); return ()=>unsub(); },[]);
 
-  // abonnement temps réel au document
   useEffect(()=>{
-    if(!user) { setData(null); return; }
-    const isCoach = user.uid===COACH_UID;
-    const unsub = dbRef.onSnapshot(snap=>{
-      if(snap.exists){ setData(snap.data()); }
+    if(!user){ setData(null); return; }
+    const isCoach=user.uid===COACH_UID;
+    const unsub=dbRef.onSnapshot(snap=>{
+      if(snap.exists){
+        const raw=snap.data(); const mig=migrate(raw);
+        if(raw.v!==2 && isCoach){ dbRef.set(mig); }
+        setData(mig);
+      }
       else if(isCoach){ dbRef.set(DEFAULT_DATA); setData(DEFAULT_DATA); }
       else { setData("waiting"); }
     }, e=>setErr(e.message));
@@ -140,14 +130,9 @@ function App(){
   if(!configOK) return <ConfigHelp/>;
   if(user===undefined) return <Splash/>;
   if(user===null) return <Login err={err} setErr={setErr}/>;
+  const isCoach=user.uid===COACH_UID;
 
-  const isCoach = user.uid===COACH_UID;
-
-  const persist = async(next)=>{
-    setData(next); setSaving(true);
-    try{ await dbRef.set(next); }catch(e){ setErr(e.message); }
-    setTimeout(()=>setSaving(false),500);
-  };
+  const persist=async(next)=>{ setData(next); setSaving(true); try{ await dbRef.set(next); }catch(e){ setErr(e.message); } setTimeout(()=>setSaving(false),500); };
 
   if(data===null) return <Splash/>;
   if(data==="waiting") return <Waiting onLogout={()=>auth.signOut()}/>;
@@ -175,18 +160,18 @@ function App(){
       )}
 
       <main style={{maxWidth:760,margin:"0 auto",padding:"16px 16px 96px"}}>
-        {tab==="modules" && <ModulesTab data={data} persist={persist} isCoach={isCoach}/>}
-        {tab==="seances" && <SessionsTab data={data} persist={persist} isCoach={isCoach}/>}
-        {tab==="suivi" && <SuiviTab data={data}/>}
+        {tab==="seances" && <SeancesTab data={data} persist={persist} isCoach={isCoach}/>}
+        {tab==="exercices" && <ExercicesTab data={data} persist={persist} isCoach={isCoach}/>}
+        {tab==="suivi" && <SuiviTab data={data} persist={persist} isCoach={isCoach}/>}
         {tab==="vma" && <VmaTab data={data} persist={persist} isCoach={isCoach}/>}
         {tab==="sante" && <SanteTab data={data} persist={persist} isCoach={isCoach}/>}
       </main>
 
       <nav style={{position:"fixed",bottom:0,left:0,right:0,zIndex:20,background:"#10161e",borderTop:`1px solid ${C.line}`,display:"flex",justifyContent:"center",paddingBottom:"env(safe-area-inset-bottom)"}}>
         <div style={{display:"flex",width:"100%",maxWidth:760}}>
-          {[["modules","Modules","🧩"],["seances","Séances","📅"],["suivi","Suivi","📈"],["vma","VMA","🏃"],["sante","Santé","❤️"]].map(([id,label,ic])=>(
-            <button key={id} onClick={()=>setTab(id)} style={{flex:1,border:"none",cursor:"pointer",background:"transparent",padding:"10px 4px 12px",display:"flex",flexDirection:"column",alignItems:"center",gap:3,color:tab===id?C.lime:C.dim,borderTop:tab===id?`2px solid ${C.lime}`:"2px solid transparent",marginTop:-1}}>
-              <span style={{fontSize:18}}>{ic}</span><span style={{fontSize:11,fontWeight:700}}>{label}</span>
+          {[["seances","Séances","📅"],["exercices","Exercices","🧩"],["suivi","Suivi","📈"],["vma","VMA","🏃"],["sante","Santé","❤️"]].map(([id,label,ic])=>(
+            <button key={id} onClick={()=>setTab(id)} style={{flex:1,border:"none",cursor:"pointer",background:"transparent",padding:"10px 2px 12px",display:"flex",flexDirection:"column",alignItems:"center",gap:3,color:tab===id?C.lime:C.dim,borderTop:tab===id?`2px solid ${C.lime}`:"2px solid transparent",marginTop:-1}}>
+              <span style={{fontSize:18}}>{ic}</span><span style={{fontSize:10.5,fontWeight:700}}>{label}</span>
             </button>
           ))}
         </div>
@@ -199,37 +184,12 @@ function App(){
   );
 }
 
-function PlayerEditor({player,onSave,onCancel}){
-  const [f,setF]=useState({name:player.name||"",level:player.level||"",poste:player.poste||"",naissance:player.naissance||""});
-  const set=(k,v)=>setF(p=>({...p,[k]:v}));
-  const age=f.naissance?Math.floor((new Date()-new Date(f.naissance+"T00:00:00"))/(365.25*24*60*60*1000)):null;
-  return (
-    <Modal title="Informations du joueur" onClose={onCancel}>
-      <Field label="Nom du joueur"><input style={inp} value={f.name} onChange={e=>set("name",e.target.value)} placeholder="Prénom Nom"/></Field>
-      <Field label="Sous-titre / catégorie"><input style={inp} value={f.level} onChange={e=>set("level",e.target.value)} placeholder="ex. Suivi entraînement footballeur"/></Field>
-      <Field label="Poste (optionnel)"><input style={inp} value={f.poste} onChange={e=>set("poste",e.target.value)} placeholder="ex. Milieu central, Attaquant, Gardien…"/></Field>
-      <Field label="Date de naissance (optionnel)">
-        <input type="date" style={inp} value={f.naissance} onChange={e=>set("naissance",e.target.value)}/>
-        {age!=null && age>=0 && age<120 && <div style={{fontSize:12,color:C.dim,marginTop:6}}>{age} ans</div>}
-      </Field>
-      <div style={{display:"flex",gap:10,marginTop:18}}><button style={{...btnPrimary,flex:1}} disabled={!f.name.trim()} onClick={()=>onSave(f)}>Enregistrer</button><button style={btnGhost} onClick={onCancel}>Annuler</button></div>
-    </Modal>
-  );
-}
-
 // ============================================================
 //  LOGIN
 // ============================================================
 function Login({err,setErr}){
-  const [email,setEmail]=useState("");
-  const [pwd,setPwd]=useState("");
-  const [busy,setBusy]=useState(false);
-  const submit=async()=>{
-    setErr(null); setBusy(true);
-    try{ await auth.signInWithEmailAndPassword(email.trim(),pwd); }
-    catch(e){ setErr(traduireErreur(e.code||e.message)); }
-    setBusy(false);
-  };
+  const [email,setEmail]=useState(""); const [pwd,setPwd]=useState(""); const [busy,setBusy]=useState(false);
+  const submit=async()=>{ setErr(null); setBusy(true); try{ await auth.signInWithEmailAndPassword(email.trim(),pwd); }catch(e){ setErr(traduireErreur(e.code||e.message)); } setBusy(false); };
   return (
     <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'Hanken Grotesk',sans-serif",display:"grid",placeItems:"center",padding:20}}>
       <div style={{width:"100%",maxWidth:360}}>
@@ -244,169 +204,73 @@ function Login({err,setErr}){
           <button style={{...btnPrimary,padding:"12px",opacity:busy?.6:1}} disabled={busy} onClick={submit}>{busy?"Connexion…":"Se connecter"}</button>
           {err && <div style={{color:C.red,fontSize:12.5,textAlign:"center"}}>{err}</div>}
         </div>
-        <div style={{color:C.dim,fontSize:11.5,textAlign:"center",marginTop:18,lineHeight:1.5}}>Les comptes sont créés par le coach dans la console Firebase. Le coach peut modifier ; le joueur consulte.</div>
       </div>
     </div>
   );
 }
-function traduireErreur(code){
-  const m={"auth/invalid-email":"E-mail invalide.","auth/user-not-found":"Compte introuvable.","auth/wrong-password":"Mot de passe incorrect.","auth/invalid-credential":"Identifiants incorrects.","auth/too-many-requests":"Trop de tentatives, réessaie plus tard."};
-  return m[code]||("Erreur : "+code);
-}
+function traduireErreur(code){ const m={"auth/invalid-email":"E-mail invalide.","auth/user-not-found":"Compte introuvable.","auth/wrong-password":"Mot de passe incorrect.","auth/invalid-credential":"Identifiants incorrects.","auth/too-many-requests":"Trop de tentatives, réessaie plus tard."}; return m[code]||("Erreur : "+code); }
 
-// ============================================================
-//  MODULES  (sous-onglets Modules / Objectifs)
-// ============================================================
-function ModulesTab({data,persist,isCoach}){
-  const [sub,setSub]=useState("modules");
+function PlayerEditor({player,onSave,onCancel}){
+  const [f,setF]=useState({name:player.name||"",level:player.level||"",poste:player.poste||"",naissance:player.naissance||""});
+  const set=(k,v)=>setF(p=>({...p,[k]:v}));
+  const age=f.naissance?Math.floor((new Date()-new Date(f.naissance+"T00:00:00"))/(365.25*24*60*60*1000)):null;
   return (
-    <div>
-      <div style={{display:"flex",gap:6,marginBottom:18,background:C.bg2,borderRadius:12,padding:4,border:`1px solid ${C.line}`}}>
-        {[["modules","🧩 Modules"],["objectifs","🏁 Objectifs"]].map(([k,l])=>(
-          <button key={k} onClick={()=>setSub(k)} style={{flex:1,border:"none",cursor:"pointer",padding:"9px",borderRadius:9,fontSize:13.5,fontWeight:700,background:sub===k?C.lime:"transparent",color:sub===k?"#0d1117":C.dim}}>{l}</button>
-        ))}
-      </div>
-      {sub==="modules" ? <ModulesList data={data} persist={persist} isCoach={isCoach}/> : <ObjectivesList data={data} persist={persist} isCoach={isCoach}/>}
-    </div>
+    <Modal title="Informations du joueur" onClose={onCancel}>
+      <Field label="Nom du joueur"><input style={inp} value={f.name} onChange={e=>set("name",e.target.value)} placeholder="Prénom Nom"/></Field>
+      <Field label="Sous-titre / catégorie"><input style={inp} value={f.level} onChange={e=>set("level",e.target.value)} placeholder="ex. U18 régional"/></Field>
+      <Field label="Poste (optionnel)"><input style={inp} value={f.poste} onChange={e=>set("poste",e.target.value)} placeholder="ex. Ailier / Latéral"/></Field>
+      <Field label="Date de naissance (optionnel)">
+        <input type="date" style={inp} value={f.naissance} onChange={e=>set("naissance",e.target.value)}/>
+        {age!=null && age>=0 && age<120 && <div style={{fontSize:12,color:C.dim,marginTop:6}}>{age} ans</div>}
+      </Field>
+      <div style={{display:"flex",gap:10,marginTop:18}}><button style={{...btnPrimary,flex:1}} disabled={!f.name.trim()} onClick={()=>onSave(f)}>Enregistrer</button><button style={btnGhost} onClick={onCancel}>Annuler</button></div>
+    </Modal>
   );
 }
 
-function ModulesList({data,persist,isCoach}){
+// ============================================================
+//  EXERCICES (bibliothèque d'activités)
+// ============================================================
+function ExercicesTab({data,persist,isCoach}){
   const [editing,setEditing]=useState(null);
-  const [linking,setLinking]=useState(null);
-  const save=(mod)=>{ let modules; if(mod.id) modules=data.modules.map(m=>m.id===mod.id?mod:m); else modules=[...data.modules,{...mod,id:uid(),objectiveIds:[]}]; persist({...data,modules}); setEditing(null); };
-  const remove=(id)=>{ if(!window.confirm("Supprimer ce module et ses mesures ?"))return; persist({...data,modules:data.modules.filter(m=>m.id!==id),entries:data.entries.filter(e=>e.moduleId!==id),sessions:data.sessions.map(s=>({...s,moduleIds:s.moduleIds.filter(x=>x!==id)}))}); };
-  const setLinks=(moduleId,objectiveIds)=>persist({...data,modules:data.modules.map(m=>m.id===moduleId?{...m,objectiveIds}:m)});
+  const save=(ex)=>{ let exercises; if(ex.id) exercises=data.exercises.map(x=>x.id===ex.id?ex:x); else exercises=[...data.exercises,{...ex,id:uid()}]; persist({...data,exercises}); setEditing(null); };
+  const remove=(id)=>{ if(!window.confirm("Supprimer cet exercice ?"))return; persist({...data,exercises:data.exercises.filter(x=>x.id!==id),sessions:data.sessions.map(s=>({...s,exerciseIds:(s.exerciseIds||[]).filter(e=>e!==id)}))}); };
   return (
     <div>
-      <SectionTitle title="Modules" action={isCoach&&<AddBtn onClick={()=>setEditing({})} label="Module"/>}/>
-      {Object.entries(CAT).map(([key,cat])=>{
-        const mods=data.modules.filter(m=>m.category===key);
+      <SectionTitle title="Exercices" action={isCoach&&<AddBtn onClick={()=>setEditing({})} label="Exercice"/>}/>
+      <div style={{fontSize:12.5,color:C.dim,marginBottom:16,lineHeight:1.5}}>La bibliothèque des activités à faire en séance (échauffement, ateliers, jeux…). Pas de note ni d'objectif : on les assemble dans les séances.</div>
+      {data.exercises.length===0 && <Empty txt="Aucun exercice. Crées-en pour pouvoir bâtir tes séances."/>}
+      {Object.entries(EXCAT).map(([key,cat])=>{
+        const exs=data.exercises.filter(e=>e.category===key);
+        if(exs.length===0) return null;
         return (
           <div key={key} style={{marginBottom:22}}>
-            <CatHeader cat={cat} count={mods.length}/>
-            {mods.length===0 && <Empty txt="Aucun module dans cet axe."/>}
+            <CatHeader cat={cat} count={exs.length}/>
             <div style={{display:"grid",gap:10}}>
-              {mods.map(m=>{
-                const ents=data.entries.filter(e=>e.moduleId===m.id);
-                const last=ents.length?ents[ents.length-1].value:null;
-                const objs=objsOf(data,m);
-                return (
-                  <div key={m.id} style={cardStyle}>
-                    <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
-                      <div style={{flex:1}}>
-                        <div style={{fontWeight:700,fontSize:15}}>{m.name}</div>
-                        <div style={{color:C.dim,fontSize:12.5,marginTop:4}}>{m.type==="note"?"Note /10":`Mesure (${m.unit||"—"})`}</div>
-                        <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
-                          {objs.length===0 && <span style={{fontSize:11.5,color:C.dim,fontStyle:"italic"}}>aucun objectif lié</span>}
-                          {objs.map(o=><span key={o.id} style={{fontSize:11.5,fontWeight:700,color:cat.color,background:cat.color+"1a",border:`1px solid ${cat.color}44`,borderRadius:16,padding:"3px 9px"}}>🏁 {o.name} ({o.min}→{o.max})</span>)}
-                        </div>
-                      </div>
-                      <div style={{textAlign:"right"}}>
-                        <div style={{fontSize:11,color:C.dim}}>dernier</div>
-                        <div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:20,color:cat.color}}>{last??"—"}</div>
-                      </div>
-                    </div>
-                    {isCoach && (
-                      <div style={{display:"flex",gap:8,marginTop:12,flexWrap:"wrap"}}>
-                        <SmallBtn onClick={()=>setLinking(m)} accent>🏁 Lier des objectifs</SmallBtn>
-                        <SmallBtn onClick={()=>setEditing(m)}>Modifier</SmallBtn>
-                        <SmallBtn onClick={()=>remove(m.id)} danger>Supprimer</SmallBtn>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {exs.map(ex=>(
+                <div key={ex.id} style={{...cardStyle,borderLeft:`3px solid ${cat.color}`}}>
+                  <div style={{fontWeight:700,fontSize:15}}>{ex.name}</div>
+                  {ex.description && <div style={{fontSize:12.5,color:C.dim,marginTop:5,whiteSpace:"pre-wrap",lineHeight:1.5}}>{ex.description}</div>}
+                  {isCoach && <div style={{display:"flex",gap:8,marginTop:12}}><SmallBtn onClick={()=>setEditing(ex)}>Modifier</SmallBtn><SmallBtn onClick={()=>remove(ex.id)} danger>Supprimer</SmallBtn></div>}
+                </div>
+              ))}
             </div>
           </div>
         );
       })}
-      {editing && <ModuleEditor module={editing} onSave={save} onCancel={()=>setEditing(null)}/>}
-      {linking && <LinkObjectives module={linking} data={data} persist={persist} onSetLinks={setLinks} onClose={()=>setLinking(null)}/>}
+      {editing && <ExerciseEditor exercise={editing} onSave={save} onCancel={()=>setEditing(null)}/>}
     </div>
   );
 }
-
-function ModuleEditor({module,onSave,onCancel}){
-  const [f,setF]=useState({id:module.id||null,name:module.name||"",category:module.category||"physique",type:module.type||"note",unit:module.unit||"",objectiveIds:module.objectiveIds||[]});
+function ExerciseEditor({exercise,onSave,onCancel}){
+  const [f,setF]=useState({id:exercise.id||null,name:exercise.name||"",category:exercise.category||"echauffement",description:exercise.description||""});
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   return (
-    <Modal title={module.id?"Modifier le module":"Nouveau module"} onClose={onCancel}>
-      <Field label="Nom du module"><input style={inp} value={f.name} onChange={e=>set("name",e.target.value)} placeholder="ex. Travail de finition"/></Field>
-      <Field label="Axe"><div style={{display:"flex",gap:8}}>{Object.entries(CAT).map(([k,c])=><Chip key={k} active={f.category===k} color={c.color} onClick={()=>set("category",k)}>{c.emoji} {c.label}</Chip>)}</div></Field>
-      <Field label="Type de mesure"><div style={{display:"flex",gap:8}}><Chip active={f.type==="note"} color={C.lime} onClick={()=>set("type","note")}>Note /10</Chip><Chip active={f.type==="mesure"} color={C.lime} onClick={()=>set("type","mesure")}>Grandeur physique</Chip></div></Field>
-      {f.type==="mesure" && <Field label="Unité"><input style={inp} value={f.unit} onChange={e=>set("unit",e.target.value)} placeholder="ex. s, touches, m, reps"/></Field>}
-      <div style={{fontSize:12,color:C.dim,marginTop:4}}>💡 Les objectifs se lient après création, via « Lier des objectifs ».</div>
-      <div style={{display:"flex",gap:10,marginTop:18}}><button style={{...btnPrimary,flex:1}} disabled={!f.name.trim()} onClick={()=>onSave(f)}>Enregistrer</button><button style={btnGhost} onClick={onCancel}>Annuler</button></div>
-    </Modal>
-  );
-}
-
-function LinkObjectives({module,data,persist,onSetLinks,onClose}){
-  const [sel,setSel]=useState(module.objectiveIds||[]);
-  const [creating,setCreating]=useState(false);
-  const cat=CAT[module.category];
-  const toggle=(id)=>setSel(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
-  const createObj=(o)=>{ const n={...o,id:uid()}; persist({...data,objectives:[...data.objectives,n]}); setSel(p=>[...p,n.id]); setCreating(false); };
-  return (
-    <Modal title={`Objectifs liés — ${module.name}`} onClose={onClose}>
-      <div style={{fontSize:12.5,color:C.dim,marginBottom:12}}>Coche les objectifs à suivre. Un même objectif peut servir à plusieurs modules.</div>
-      <div style={{display:"grid",gap:8,marginBottom:14}}>
-        {data.objectives.length===0 && <Empty txt="Aucun objectif créé."/>}
-        {data.objectives.map(o=>{ const active=sel.includes(o.id); return (
-          <button key={o.id} onClick={()=>toggle(o.id)} style={{textAlign:"left",cursor:"pointer",background:active?cat.color+"1a":C.bg,border:`1px solid ${active?cat.color:C.line}`,borderRadius:10,padding:"11px 13px",color:C.text,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
-            <span><span style={{fontWeight:700,fontSize:14}}>{o.name}</span><br/><span style={{fontSize:12,color:C.dim}}>{o.min} → {o.max} {o.direction==="up"?"↑":"↓"}</span></span>
-            <span style={{width:22,height:22,borderRadius:6,border:`1px solid ${active?cat.color:C.line}`,background:active?cat.color:"transparent",color:"#0d1117",display:"grid",placeItems:"center",fontWeight:900,fontSize:14}}>{active?"✓":""}</span>
-          </button>
-        );})}
-      </div>
-      <SmallBtn onClick={()=>setCreating(true)} accent>+ Créer un nouvel objectif</SmallBtn>
-      <div style={{display:"flex",gap:10,marginTop:18}}><button style={{...btnPrimary,flex:1}} onClick={()=>{onSetLinks(module.id,sel);onClose();}}>Valider les liens</button><button style={btnGhost} onClick={onClose}>Annuler</button></div>
-      {creating && <ObjectiveEditor objective={{}} onSave={createObj} onCancel={()=>setCreating(false)}/>}
-    </Modal>
-  );
-}
-
-function ObjectivesList({data,persist,isCoach}){
-  const [editing,setEditing]=useState(null);
-  const save=(o)=>{ let objectives; if(o.id) objectives=data.objectives.map(x=>x.id===o.id?o:x); else objectives=[...data.objectives,{...o,id:uid()}]; persist({...data,objectives}); setEditing(null); };
-  const remove=(id)=>{ if(!window.confirm("Supprimer cet objectif ? Il sera retiré des modules liés."))return; persist({...data,objectives:data.objectives.filter(o=>o.id!==id),modules:data.modules.map(m=>({...m,objectiveIds:(m.objectiveIds||[]).filter(x=>x!==id)}))}); };
-  return (
-    <div>
-      <SectionTitle title="Objectifs" action={isCoach&&<AddBtn onClick={()=>setEditing({})} label="Objectif"/>}/>
-      {data.objectives.length===0 && <Empty txt="Aucun objectif. Crées-en un, puis lie-le à des modules."/>}
-      <div style={{display:"grid",gap:10}}>
-        {data.objectives.map(o=>{
-          const linked=data.modules.filter(m=>(m.objectiveIds||[]).includes(o.id));
-          return (
-            <div key={o.id} style={cardStyle}>
-              <div style={{flex:1}}>
-                <div style={{fontWeight:700,fontSize:15}}>🏁 {o.name}</div>
-                <div style={{color:C.dim,fontSize:12.5,marginTop:4}}>Cible {o.min} → {o.max} • {o.direction==="up"?"↑ plus haut = mieux":"↓ plus bas = mieux"}</div>
-                <div style={{marginTop:8,fontSize:12,color:C.dim}}>{linked.length===0?"Lié à aucun module":`Lié à ${linked.length} module(s) : `}{linked.map(m=><span key={m.id} style={{color:CAT[m.category].color,fontWeight:600}}>{m.name}{" · "}</span>)}</div>
-              </div>
-              {isCoach && <div style={{display:"flex",gap:8,marginTop:12}}><SmallBtn onClick={()=>setEditing(o)}>Modifier</SmallBtn><SmallBtn onClick={()=>remove(o.id)} danger>Supprimer</SmallBtn></div>}
-            </div>
-          );
-        })}
-      </div>
-      {editing && <ObjectiveEditor objective={editing} onSave={save} onCancel={()=>setEditing(null)}/>}
-    </div>
-  );
-}
-
-function ObjectiveEditor({objective,onSave,onCancel}){
-  const [f,setF]=useState({id:objective.id||null,name:objective.name||"",min:objective.min??5,max:objective.max??9,direction:objective.direction||"up"});
-  const set=(k,v)=>setF(p=>({...p,[k]:v}));
-  return (
-    <Modal title={objective.id?"Modifier l'objectif":"Nouvel objectif"} onClose={onCancel}>
-      <Field label="Nom de l'objectif"><input style={inp} value={f.name} onChange={e=>set("name",e.target.value)} placeholder="ex. Niveau visé, Sprint élite…"/></Field>
-      <div style={{display:"flex",gap:12}}>
-        <Field label="Valeur mini" flex><input type="number" step="any" style={inp} value={f.min} onChange={e=>set("min",parseFloat(e.target.value))}/></Field>
-        <Field label="Valeur maxi" flex><input type="number" step="any" style={inp} value={f.max} onChange={e=>set("max",parseFloat(e.target.value))}/></Field>
-      </div>
-      <Field label="Sens de progression"><div style={{display:"flex",gap:8}}><Chip active={f.direction==="up"} color={C.lime} onClick={()=>set("direction","up")}>↑ Plus haut = mieux</Chip><Chip active={f.direction==="down"} color={C.lime} onClick={()=>set("direction","down")}>↓ Plus bas = mieux</Chip></div></Field>
-      <div style={{display:"flex",gap:10,marginTop:18}}><button style={{...btnPrimary,flex:1}} disabled={!f.name.trim()} onClick={()=>onSave(f)}>Enregistrer</button><button style={btnGhost} onClick={onCancel}>Annuler</button></div>
+    <Modal title={exercise.id?"Modifier l'exercice":"Nouvel exercice"} onClose={onCancel}>
+      <Field label="Nom"><input style={inp} value={f.name} onChange={e=>set("name",e.target.value)} placeholder="ex. Échauffement, Toro 4c1, Centres-tir…"/></Field>
+      <Field label="Catégorie"><div style={{display:"flex",flexWrap:"wrap",gap:8}}>{Object.entries(EXCAT).map(([k,c])=><Chip key={k} active={f.category===k} color={c.color} onClick={()=>set("category",k)}>{c.emoji} {c.label}</Chip>)}</div></Field>
+      <Field label="Description / consignes (optionnel)"><textarea style={{...inp,minHeight:80,resize:"vertical"}} value={f.description} onChange={e=>set("description",e.target.value)} placeholder="Déroulé, durée, matériel, points de coaching…"/></Field>
+      <div style={{display:"flex",gap:10,marginTop:8}}><button style={{...btnPrimary,flex:1}} disabled={!f.name.trim()} onClick={()=>onSave(f)}>Enregistrer</button><button style={btnGhost} onClick={onCancel}>Annuler</button></div>
     </Modal>
   );
 }
@@ -414,20 +278,20 @@ function ObjectiveEditor({objective,onSave,onCancel}){
 // ============================================================
 //  SÉANCES
 // ============================================================
-function SessionsTab({data,persist,isCoach}){
+function SeancesTab({data,persist,isCoach}){
   const [creating,setCreating]=useState(false);
   const [openId,setOpenId]=useState(null);
   const sessions=[...data.sessions].sort((a,b)=>b.date.localeCompare(a.date));
-  const addSession=(s)=>{ persist({...data,sessions:[...data.sessions,{...s,id:uid()}]}); setCreating(false); };
-  const removeSession=(id)=>{ if(!window.confirm("Supprimer cette séance ?"))return; persist({...data,sessions:data.sessions.filter(s=>s.id!==id),entries:data.entries.map(e=>e.sessionId===id?{...e,sessionId:null}:e)}); };
+  const add=(s)=>{ persist({...data,sessions:[...data.sessions,{...s,id:uid(),done:{},comment:""}]}); setCreating(false); };
   return (
     <div>
-      <SectionTitle title="Journées d'entraînement" action={isCoach&&<AddBtn onClick={()=>setCreating(true)} label="Séance"/>}/>
+      <SectionTitle title="Séances" action={isCoach&&<AddBtn onClick={()=>setCreating(true)} label="Séance"/>}/>
       {sessions.length===0 && <Empty txt="Aucune séance planifiée."/>}
       <div style={{display:"grid",gap:10}}>
         {sessions.map(s=>{
-          const mods=data.modules.filter(m=>s.moduleIds.includes(m.id));
-          const done=data.entries.filter(e=>e.sessionId===s.id).length;
+          const exs=data.exercises.filter(e=>(s.exerciseIds||[]).includes(e.id));
+          const doneN=Object.values(s.done||{}).filter(Boolean).length;
+          const meas=(data.readings||[]).filter(r=>r.sessionId===s.id).length;
           return (
             <div key={s.id} style={cardStyle}>
               <div style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}} onClick={()=>setOpenId(openId===s.id?null:s.id)}>
@@ -435,44 +299,84 @@ function SessionsTab({data,persist,isCoach}){
                   <div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:18,color:C.lime,lineHeight:1}}>{fmtDate(s.date).split(" ")[0]}</div>
                   <div style={{fontSize:10,color:C.dim,textTransform:"uppercase"}}>{fmtDate(s.date).split(" ")[1]}</div>
                 </div>
-                <div style={{flex:1}}><div style={{fontWeight:700,fontSize:15}}>{s.title||"Séance"}</div><div style={{color:C.dim,fontSize:12.5,marginTop:3}}>{mods.length} module(s) • {done} mesure(s)</div></div>
+                <div style={{flex:1}}><div style={{fontWeight:700,fontSize:15}}>{s.title||"Séance"}</div><div style={{color:C.dim,fontSize:12.5,marginTop:3}}>{exs.length} exo · {doneN} fait(s) · {meas} relevé(s)</div></div>
                 <span style={{color:C.dim,fontSize:18}}>{openId===s.id?"▾":"▸"}</span>
               </div>
-              {openId===s.id && (
-                <div style={{marginTop:14,borderTop:`1px solid ${C.line}`,paddingTop:14}}>
-                  {mods.length===0 && <Empty txt="Aucun module dans cette séance."/>}
-                  <div style={{display:"grid",gap:10}}>{mods.map(m=><SessionModuleRow key={m.id} module={m} session={s} data={data} persist={persist} isCoach={isCoach}/>)}</div>
-                  {isCoach && <div style={{marginTop:12}}><SmallBtn onClick={()=>removeSession(s.id)} danger>Supprimer la séance</SmallBtn></div>}
-                </div>
-              )}
+              {openId===s.id && <SessionDetail session={s} data={data} persist={persist} isCoach={isCoach}/>}
             </div>
           );
         })}
       </div>
-      {creating && <SessionCreator data={data} onSave={addSession} onCancel={()=>setCreating(false)}/>}
+      {creating && <SessionCreator data={data} onSave={add} onCancel={()=>setCreating(false)}/>}
     </div>
   );
 }
 
-function SessionModuleRow({module,session,data,persist,isCoach}){
-  const [val,setVal]=useState("");
-  const existing=data.entries.find(e=>e.sessionId===session.id&&e.moduleId===module.id);
-  const cat=CAT[module.category];
-  const objs=objsOf(data,module);
-  const curVal=existing?existing.value:null;
-  const saveVal=()=>{ const v=parseFloat(val); if(isNaN(v))return; let entries; if(existing) entries=data.entries.map(e=>e.id===existing.id?{...e,value:v}:e); else entries=[...data.entries,{id:uid(),moduleId:module.id,sessionId:session.id,date:session.date,value:v}]; persist({...data,entries}); setVal(""); };
+function SessionDetail({session,data,persist,isCoach}){
+  const [adding,setAdding]=useState(false);
+  const exs=data.exercises.filter(e=>(session.exerciseIds||[]).includes(e.id));
+  const measures=(data.readings||[]).filter(r=>r.sessionId===session.id);
+  const updateSession=(patch)=>persist({...data,sessions:data.sessions.map(s=>s.id===session.id?{...s,...patch}:s)});
+  const toggleDone=(exId)=>{ const done={...(session.done||{})}; done[exId]=!done[exId]; updateSession({done}); };
+  const removeSession=()=>{ if(!window.confirm("Supprimer cette séance ?"))return; persist({...data,sessions:data.sessions.filter(s=>s.id!==session.id),readings:(data.readings||[]).map(r=>r.sessionId===session.id?{...r,sessionId:null}:r)}); };
+  const saveReading=(indicatorId,value)=>{ persist({...data,readings:[...(data.readings||[]),{id:uid(),indicatorId,date:session.date,value,sessionId:session.id}]}); setAdding(false); };
+  const indName=(id)=>{ const i=data.indicators.find(x=>x.id===id); return i?i.name:"Indicateur"; };
   return (
-    <div style={{background:C.bg2,borderRadius:10,padding:12,borderLeft:`3px solid ${cat.color}`}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}><div style={{fontSize:14,fontWeight:600}}>{module.name}</div><div style={{fontSize:11,color:C.dim}}>{module.type==="note"?"/10":module.unit}</div></div>
-      <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8}}>
-        <div style={{flex:1,display:"grid",gap:6}}>
-          {objs.length===0 && <div style={{fontSize:11.5,color:C.dim,fontStyle:"italic"}}>aucun objectif lié{curVal!=null?` — valeur : ${curVal}`:""}</div>}
-          {objs.map(o=><Gauge key={o.id} objective={o} value={curVal} color={cat.color}/>)}
-        </div>
-        {isCoach && <div style={{display:"flex",gap:6}}><input type="number" step="any" value={val} onChange={e=>setVal(e.target.value)} placeholder={existing?String(existing.value):"valeur"} style={{...inp,width:78,padding:"8px 10px"}}/><button style={{...btnPrimary,padding:"8px 12px"}} onClick={saveVal}>OK</button></div>}
-        {!isCoach && curVal!=null && <div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:18,color:cat.color}}>{curVal}</div>}
+    <div style={{marginTop:14,borderTop:`1px solid ${C.line}`,paddingTop:14}}>
+      <div style={{fontSize:11,fontWeight:800,color:C.dim,textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>Exercices</div>
+      {exs.length===0 && <Empty txt="Aucun exercice dans cette séance."/>}
+      <div style={{display:"grid",gap:8}}>
+        {exs.map(ex=>{ const cat=EXCAT[ex.category]||EXCAT.echauffement; const done=!!(session.done||{})[ex.id]; return (
+          <div key={ex.id} onClick={isCoach?()=>toggleDone(ex.id):undefined} style={{display:"flex",gap:10,alignItems:"flex-start",background:C.bg2,borderRadius:10,padding:11,borderLeft:`3px solid ${cat.color}`,cursor:isCoach?"pointer":"default",opacity:done?.6:1}}>
+            <div style={{width:20,height:20,borderRadius:6,border:`1px solid ${done?C.lime:C.line}`,background:done?C.lime:"transparent",color:"#0d1117",display:"grid",placeItems:"center",fontWeight:900,fontSize:13,flexShrink:0,marginTop:1}}>{done?"✓":""}</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:14,fontWeight:600,textDecoration:done?"line-through":"none"}}>{ex.name}</div>
+              {ex.description && <div style={{fontSize:12,color:C.dim,marginTop:3,whiteSpace:"pre-wrap"}}>{ex.description}</div>}
+            </div>
+            <span style={{fontSize:11,color:cat.color,fontWeight:700,whiteSpace:"nowrap"}}>{cat.emoji}</span>
+          </div>
+        );})}
       </div>
+
+      <div style={{fontSize:11,fontWeight:800,color:C.dim,textTransform:"uppercase",letterSpacing:.5,margin:"16px 0 8px"}}>Relevés du jour</div>
+      {measures.length===0 && <div style={{fontSize:12.5,color:C.dim,fontStyle:"italic",marginBottom:8}}>Aucune mesure saisie ce jour.</div>}
+      <div style={{display:"grid",gap:6}}>
+        {measures.map(r=>(
+          <div key={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:C.bg2,borderRadius:8,padding:"8px 11px",fontSize:13}}>
+            <span>{indName(r.indicatorId)}</span>
+            <span style={{display:"flex",alignItems:"center",gap:10}}><b style={{color:C.lime}}>{r.value}</b>{isCoach && <button onClick={()=>persist({...data,readings:data.readings.filter(x=>x.id!==r.id)})} style={{background:"transparent",border:"none",color:C.dim,cursor:"pointer",fontSize:14}}>×</button>}</span>
+          </div>
+        ))}
+      </div>
+      {isCoach && data.indicators.length>0 && <div style={{marginTop:10}}><SmallBtn onClick={()=>setAdding(true)} accent>+ Relevé</SmallBtn></div>}
+      {isCoach && data.indicators.length===0 && <div style={{fontSize:11.5,color:C.dim,marginTop:8}}>Crée d'abord des indicateurs dans l'onglet Suivi pour pouvoir saisir des relevés.</div>}
+
+      {isCoach && (
+        <div style={{marginTop:16}}>
+          <div style={{fontSize:11,fontWeight:800,color:C.dim,textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>Commentaire</div>
+          <textarea style={{...inp,minHeight:60,resize:"vertical"}} value={session.comment||""} onChange={e=>updateSession({comment:e.target.value})} placeholder="Ressenti, points travaillés, axes à revoir…"/>
+        </div>
+      )}
+      {!isCoach && session.comment && <div style={{marginTop:16}}><div style={{fontSize:11,fontWeight:800,color:C.dim,textTransform:"uppercase",letterSpacing:.5,marginBottom:6}}>Commentaire</div><div style={{fontSize:13,color:C.text,whiteSpace:"pre-wrap"}}>{session.comment}</div></div>}
+
+      {isCoach && <div style={{marginTop:14}}><SmallBtn onClick={removeSession} danger>Supprimer la séance</SmallBtn></div>}
+      {adding && <SessionReadingModal data={data} onSave={saveReading} onClose={()=>setAdding(false)}/>}
     </div>
+  );
+}
+
+function SessionReadingModal({data,onSave,onClose}){
+  const [indId,setIndId]=useState(data.indicators[0]?data.indicators[0].id:"");
+  const [val,setVal]=useState("");
+  const ind=data.indicators.find(i=>i.id===indId);
+  return (
+    <Modal title="Relevé du jour" onClose={onClose}>
+      <Field label="Indicateur">
+        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{data.indicators.map(i=><Chip key={i.id} active={indId===i.id} color={CAT[i.category]?CAT[i.category].color:C.lime} onClick={()=>setIndId(i.id)}>{i.name}</Chip>)}</div>
+      </Field>
+      <Field label={`Valeur${ind?(ind.type==="note"?" (/10)":ind.unit?` (${ind.unit})`:""):""}`}><input type="number" step="any" style={inp} value={val} onChange={e=>setVal(e.target.value)} placeholder="valeur"/></Field>
+      <div style={{display:"flex",gap:10,marginTop:8}}><button style={{...btnPrimary,flex:1}} disabled={!indId||val===""||isNaN(parseFloat(val))} onClick={()=>onSave(indId,parseFloat(val))}>Enregistrer</button><button style={btnGhost} onClick={onClose}>Annuler</button></div>
+    </Modal>
   );
 }
 
@@ -482,62 +386,196 @@ function SessionCreator({data,onSave,onCancel}){
   const [picked,setPicked]=useState([]);
   const toggle=(id)=>setPicked(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
   return (
-    <Modal title="Nouvelle journée d'entraînement" onClose={onCancel}>
-      <div style={{display:"flex",gap:12}}><Field label="Date" flex><input type="date" style={inp} value={date} onChange={e=>setDate(e.target.value)}/></Field><Field label="Intitulé" flex><input style={inp} value={title} onChange={e=>setTitle(e.target.value)} placeholder="ex. Séance technique"/></Field></div>
-      <Field label="Modules à travailler">
-        {Object.entries(CAT).map(([k,c])=>{ const mods=data.modules.filter(m=>m.category===k); if(!mods.length)return null; return (
-          <div key={k} style={{marginBottom:10}}><div style={{fontSize:11,color:c.color,fontWeight:700,textTransform:"uppercase",marginBottom:6}}>{c.label}</div><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{mods.map(m=><Chip key={m.id} active={picked.includes(m.id)} color={c.color} onClick={()=>toggle(m.id)}>{m.name}</Chip>)}</div></div>
+    <Modal title="Nouvelle séance" onClose={onCancel}>
+      <div style={{display:"flex",gap:12}}><Field label="Date" flex><input type="date" style={inp} value={date} onChange={e=>setDate(e.target.value)}/></Field><Field label="Intitulé" flex><input style={inp} value={title} onChange={e=>setTitle(e.target.value)} placeholder="ex. Vitesse + technique"/></Field></div>
+      <Field label="Exercices de la séance">
+        {data.exercises.length===0 && <Empty txt="Aucun exercice. Crée-en dans l'onglet Exercices."/>}
+        {Object.entries(EXCAT).map(([k,c])=>{ const exs=data.exercises.filter(e=>e.category===k); if(!exs.length)return null; return (
+          <div key={k} style={{marginBottom:10}}><div style={{fontSize:11,color:c.color,fontWeight:700,textTransform:"uppercase",marginBottom:6}}>{c.emoji} {c.label}</div><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{exs.map(e=><Chip key={e.id} active={picked.includes(e.id)} color={c.color} onClick={()=>toggle(e.id)}>{e.name}</Chip>)}</div></div>
         );})}
       </Field>
-      <div style={{display:"flex",gap:10,marginTop:8}}><button style={{...btnPrimary,flex:1}} disabled={picked.length===0} onClick={()=>onSave({date,title,moduleIds:picked})}>Créer la séance</button><button style={btnGhost} onClick={onCancel}>Annuler</button></div>
+      <div style={{display:"flex",gap:10,marginTop:8}}><button style={{...btnPrimary,flex:1}} onClick={()=>onSave({date,title,exerciseIds:picked})}>Créer la séance</button><button style={btnGhost} onClick={onCancel}>Annuler</button></div>
     </Modal>
   );
 }
 
 // ============================================================
-//  SUIVI
+//  SUIVI (indicateurs + objectifs + graphiques)
 // ============================================================
-function SuiviTab({data}){
+function SuiviTab({data,persist,isCoach}){
   const [cat,setCat]=useState("all");
-  const mods=data.modules.filter(m=>cat==="all"||m.category===cat);
+  const [editing,setEditing]=useState(null);
+  const [reading,setReading]=useState(null);
+  const inds=data.indicators.filter(i=>cat==="all"||i.category===cat);
+  const save=(ind)=>{ let indicators; if(ind.id) indicators=data.indicators.map(x=>x.id===ind.id?ind:x); else indicators=[...data.indicators,{...ind,id:uid()}]; persist({...data,indicators}); setEditing(null); };
+  const remove=(id)=>{ if(!window.confirm("Supprimer cet indicateur et ses relevés ?"))return; persist({...data,indicators:data.indicators.filter(i=>i.id!==id),readings:(data.readings||[]).filter(r=>r.indicatorId!==id)}); };
+  const addReading=(indicatorId,date,value)=>{ persist({...data,readings:[...(data.readings||[]),{id:uid(),indicatorId,date,value,sessionId:null}]}); setReading(null); };
+  const delReading=(rid)=>persist({...data,readings:data.readings.filter(r=>r.id!==rid)});
   return (
     <div>
-      <SectionTitle title="Suivi & objectifs"/>
+      <SectionTitle title="Suivi" action={isCoach&&<AddBtn onClick={()=>setEditing({})} label="Indicateur"/>}/>
+      <div style={{fontSize:12.5,color:C.dim,marginBottom:14,lineHeight:1.5}}>Les indicateurs mesurés (tests, notes) avec leur objectif optionnel. Saisis un relevé à tout moment ou pendant une séance.</div>
       <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
         <Chip active={cat==="all"} color={C.lime} onClick={()=>setCat("all")}>Tout</Chip>
         {Object.entries(CAT).map(([k,c])=><Chip key={k} active={cat===k} color={c.color} onClick={()=>setCat(k)}>{c.emoji} {c.label}</Chip>)}
       </div>
-      <div style={{display:"grid",gap:14}}>{mods.map(m=><ModuleChart key={m.id} module={m} data={data}/>)}</div>
+      {data.indicators.length===0 && <Empty txt="Aucun indicateur. Crée-en un (ex. Sprint 30 m, Note de finition…)."/>}
+      <div style={{display:"grid",gap:14}}>
+        {inds.map(ind=><IndicatorCard key={ind.id} ind={ind} data={data} isCoach={isCoach} onEdit={()=>setEditing(ind)} onRemove={()=>remove(ind.id)} onAddReading={()=>setReading(ind)} onDelReading={delReading}/>)}
+      </div>
+      {editing && <IndicatorEditor indicator={editing} onSave={save} onCancel={()=>setEditing(null)}/>}
+      {reading && <ReadingModal indicator={reading} onSave={addReading} onClose={()=>setReading(null)}/>}
     </div>
   );
 }
 
-function ModuleChart({module,data}){
-  const cat=CAT[module.category];
-  const objs=objsOf(data,module);
-  const sorted=[...data.entries.filter(e=>e.moduleId===module.id)].sort((a,b)=>a.date.localeCompare(b.date));
-  const pts=sorted.map(e=>({label:fmtDate(e.date),value:e.value}));
-  const last=pts.length?pts[pts.length-1].value:null;
+function IndicatorCard({ind,data,isCoach,onEdit,onRemove,onAddReading,onDelReading}){
+  const cat=CAT[ind.category]||CAT.physique;
+  const rs=readingsOf(data,ind.id);
+  const pts=rs.map(r=>({label:fmtDate(r.date),value:r.value,id:r.id}));
+  const last=rs.length?rs[rs.length-1].value:null;
+  const goal=ind.hasGoal?{min:ind.min,max:ind.max,direction:ind.direction}:null;
   return (
     <div style={cardStyle}>
-      <div style={{marginBottom:10}}>
-        <div style={{fontWeight:700,fontSize:15}}>{module.name}</div>
-        <div style={{fontSize:12,color:C.dim,marginTop:3}}><span style={{color:cat.color}}>{cat.emoji} {cat.label}</span> • {module.type==="mesure"?(module.unit||"mesure"):"note /10"}</div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+        <div style={{flex:1}}>
+          <div style={{fontWeight:700,fontSize:15}}>{ind.name}</div>
+          <div style={{fontSize:12,color:C.dim,marginTop:3}}><span style={{color:cat.color}}>{cat.emoji} {cat.label}</span> • {ind.type==="note"?"note /10":(ind.unit||"mesure")}{goal?` • obj. ${ind.min}→${ind.max} ${ind.direction==="up"?"↑":"↓"}`:""}</div>
+        </div>
+        <div style={{textAlign:"right"}}><div style={{fontSize:10.5,color:C.dim}}>dernier</div><div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:20,color:cat.color}}>{last??"—"}</div></div>
       </div>
-      {objs.length>0 && <div style={{display:"grid",gap:6,marginBottom:12}}>{objs.map(o=>(
-        <div key={o.id}><div style={{fontSize:11.5,color:C.dim,marginBottom:3}}>🏁 {o.name} ({o.min}→{o.max})</div><Gauge objective={o} value={last} color={cat.color}/></div>
-      ))}</div>}
-      {pts.length===0 ? <Empty txt="Aucune mesure encore saisie."/> : <SvgLineChart pts={pts} objs={objs} color={cat.color}/>}
+      {goal && <div style={{marginTop:10}}><Gauge min={ind.min} max={ind.max} direction={ind.direction} value={last} color={cat.color}/></div>}
+      {pts.length>0 && <div style={{marginTop:12}}><SvgLineChart pts={pts} goal={goal} color={cat.color}/></div>}
+      {pts.length===0 && <div style={{marginTop:10,fontSize:12.5,color:C.dim,fontStyle:"italic"}}>Aucun relevé pour l'instant.</div>}
+      {isCoach && (
+        <div style={{display:"flex",gap:8,marginTop:12,flexWrap:"wrap"}}>
+          <SmallBtn onClick={onAddReading} accent>+ Relevé</SmallBtn>
+          <SmallBtn onClick={onEdit}>Modifier</SmallBtn>
+          <SmallBtn onClick={onRemove} danger>Supprimer</SmallBtn>
+        </div>
+      )}
+      {isCoach && rs.length>0 && (
+        <div style={{marginTop:10,display:"flex",flexWrap:"wrap",gap:6}}>
+          {[...rs].reverse().slice(0,8).map(r=>(
+            <span key={r.id} style={{fontSize:11,color:C.dim,background:C.bg2,borderRadius:14,padding:"3px 9px",display:"inline-flex",gap:6,alignItems:"center"}}>{fmtDate(r.date)} : <b style={{color:C.text}}>{r.value}</b><button onClick={()=>onDelReading(r.id)} style={{background:"transparent",border:"none",color:C.dim,cursor:"pointer",padding:0}}>×</button></span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-// --- Graphique SVG (sans dépendance) ---
-function SvgLineChart({pts,objs,color}){
+function IndicatorEditor({indicator,onSave,onCancel}){
+  const [f,setF]=useState({id:indicator.id||null,name:indicator.name||"",category:indicator.category||"physique",type:indicator.type||"note",unit:indicator.unit||"",hasGoal:indicator.hasGoal??false,min:indicator.min??5,max:indicator.max??9,direction:indicator.direction||"up"});
+  const set=(k,v)=>setF(p=>({...p,[k]:v}));
+  return (
+    <Modal title={indicator.id?"Modifier l'indicateur":"Nouvel indicateur"} onClose={onCancel}>
+      <Field label="Nom"><input style={inp} value={f.name} onChange={e=>set("name",e.target.value)} placeholder="ex. Sprint 30 m, Note de finition…"/></Field>
+      <Field label="Axe"><div style={{display:"flex",gap:8}}>{Object.entries(CAT).map(([k,c])=><Chip key={k} active={f.category===k} color={c.color} onClick={()=>set("category",k)}>{c.emoji} {c.label}</Chip>)}</div></Field>
+      <Field label="Type de mesure"><div style={{display:"flex",gap:8}}><Chip active={f.type==="note"} color={C.lime} onClick={()=>set("type","note")}>Note /10</Chip><Chip active={f.type==="mesure"} color={C.lime} onClick={()=>set("type","mesure")}>Grandeur physique</Chip></div></Field>
+      {f.type==="mesure" && <Field label="Unité"><input style={inp} value={f.unit} onChange={e=>set("unit",e.target.value)} placeholder="ex. s, cm, reps, km/h"/></Field>}
+      <Field label="Objectif">
+        <div style={{display:"flex",gap:8}}><Chip active={!f.hasGoal} color={C.dim} onClick={()=>set("hasGoal",false)}>Aucun</Chip><Chip active={f.hasGoal} color={C.lime} onClick={()=>set("hasGoal",true)}>Définir une cible</Chip></div>
+      </Field>
+      {f.hasGoal && (
+        <div>
+          <div style={{display:"flex",gap:12}}>
+            <Field label="Valeur mini" flex><input type="number" step="any" style={inp} value={f.min} onChange={e=>set("min",parseFloat(e.target.value))}/></Field>
+            <Field label="Valeur maxi" flex><input type="number" step="any" style={inp} value={f.max} onChange={e=>set("max",parseFloat(e.target.value))}/></Field>
+          </div>
+          <Field label="Sens de progression"><div style={{display:"flex",gap:8}}><Chip active={f.direction==="up"} color={C.lime} onClick={()=>set("direction","up")}>↑ Plus haut = mieux</Chip><Chip active={f.direction==="down"} color={C.lime} onClick={()=>set("direction","down")}>↓ Plus bas = mieux</Chip></div></Field>
+        </div>
+      )}
+      <div style={{display:"flex",gap:10,marginTop:8}}><button style={{...btnPrimary,flex:1}} disabled={!f.name.trim()} onClick={()=>onSave(f)}>Enregistrer</button><button style={btnGhost} onClick={onCancel}>Annuler</button></div>
+    </Modal>
+  );
+}
+
+function ReadingModal({indicator,onSave,onClose}){
+  const [date,setDate]=useState(todayISO());
+  const [val,setVal]=useState("");
+  return (
+    <Modal title={`Relevé — ${indicator.name}`} onClose={onClose}>
+      <div style={{display:"flex",gap:12}}>
+        <Field label="Date" flex><input type="date" style={inp} value={date} onChange={e=>setDate(e.target.value)}/></Field>
+        <Field label={`Valeur${indicator.type==="note"?" (/10)":indicator.unit?` (${indicator.unit})`:""}`} flex><input type="number" step="any" style={inp} value={val} onChange={e=>setVal(e.target.value)} placeholder="valeur"/></Field>
+      </div>
+      <div style={{display:"flex",gap:10,marginTop:8}}><button style={{...btnPrimary,flex:1}} disabled={val===""||isNaN(parseFloat(val))} onClick={()=>onSave(indicator.id,date,parseFloat(val))}>Enregistrer</button><button style={btnGhost} onClick={onClose}>Annuler</button></div>
+    </Modal>
+  );
+}
+
+// ============================================================
+//  VMA — Test demi-Cooper
+// ============================================================
+function VmaTab({data,persist,isCoach}){
+  const [dist,setDist]=useState(""); const [date,setDate]=useState(todayISO());
+  const tests=[...(data.vmaTests||[])].sort((a,b)=>a.date.localeCompare(b.date));
+  const lastTest=tests.length?tests[tests.length-1]:null;
+  const d=parseFloat(dist); const calcVma=(!isNaN(d)&&d>0)?d/100:null; const refVma=calcVma||(lastTest?lastTest.vma:null);
+  const allure=(v)=>{ if(!v) return "—"; const a=60/v; const m=Math.floor(a); const s=Math.round((a-m)*60); return `${m}:${String(s).padStart(2,"0")}`; };
+  const vo2=(v)=> v?Math.round(v*3.5):null;
+  const save=()=>{ if(!calcVma) return; const v=+calcVma.toFixed(1); persist({...data,vmaTests:[...(data.vmaTests||[]).filter(t=>t.date!==date),{id:uid(),date,distance:d,vma:v}]}); setDist(""); };
+  const removeTest=(id)=>{ if(!window.confirm("Supprimer ce test ?"))return; persist({...data,vmaTests:(data.vmaTests||[]).filter(t=>t.id!==id)}); };
+  const zones=[60,70,80,90,95,100,105,110];
+  const vmaPts=tests.map(t=>({label:fmtDate(t.date),value:t.vma}));
+  return (
+    <div>
+      <SectionTitle title="VMA — Test demi-Cooper"/>
+      <div style={{...cardStyle,marginBottom:14}}>
+        <div style={{fontSize:12.5,color:C.dim,lineHeight:1.6,marginBottom:isCoach?12:0}}><b style={{color:C.text}}>Protocole :</b> après échauffement, courir la plus grande distance possible en <b style={{color:C.lime}}>6 minutes</b>. <b style={{color:C.lime}}>VMA (km/h) = distance (m) ÷ 100</b>.</div>
+        {isCoach && <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}><Field label="Date" flex><input type="date" style={inp} value={date} onChange={e=>setDate(e.target.value)}/></Field><Field label="Distance en 6 min (m)" flex><input type="number" step="any" style={inp} value={dist} onChange={e=>setDist(e.target.value)} placeholder="ex. 1500"/></Field></div>}
+      </div>
+      {refVma && <div style={{display:"flex",gap:10,marginBottom:14}}><Stat label="VMA" value={`${(+refVma.toFixed(1))} km/h`} accent/><Stat label="Allure" value={`${allure(refVma)}/km`}/><Stat label="VO₂max est." value={`${vo2(refVma)}`}/></div>}
+      {isCoach && calcVma && <button style={{...btnPrimary,marginBottom:16,width:"100%"}} onClick={save}>Enregistrer ce test ({(+calcVma.toFixed(1))} km/h)</button>}
+      {refVma && (
+        <div style={{...cardStyle,marginBottom:14}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Allures d'entraînement</div>
+          <div style={{fontSize:11.5,color:C.dim,marginBottom:12}}>Sur une VMA de {(+refVma.toFixed(1))} km/h.</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:"9px 6px",fontSize:12.5}}>
+            <div style={{color:C.dim,fontWeight:700}}>% VMA</div><div style={{color:C.dim,fontWeight:700}}>km/h</div><div style={{color:C.dim,fontWeight:700}}>allure</div><div style={{color:C.dim,fontWeight:700}}>en 30 s</div>
+            {zones.map(p=>{ const v=refVma*p/100; const dd=Math.round(v/3.6*30); const hot=p>=95&&p<=105; return (<React.Fragment key={p}><div style={{fontWeight:700,color:hot?C.lime:C.text}}>{p}%</div><div>{v.toFixed(1)}</div><div>{allure(v)}</div><div>{dd} m</div></React.Fragment>);})}
+          </div>
+          <div style={{fontSize:11,color:C.dim,marginTop:12,lineHeight:1.6}}>60-70 % endurance · 80-90 % seuil · 95-105 % travail VMA · 110 % survitesse.</div>
+        </div>
+      )}
+      {tests.length>0 && <div style={{...cardStyle,marginBottom:14}}><div style={{fontSize:13,fontWeight:700,marginBottom:10}}>Évolution de la VMA (km/h)</div><SvgLineChart pts={vmaPts} color={C.lime}/></div>}
+      {tests.length>0 && <div style={{display:"grid",gap:8}}>{[...tests].reverse().map(t=>(<div key={t.id} style={{...cardStyle,display:"flex",alignItems:"center",gap:12,padding:12}}><div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:18,color:C.lime}}>{t.vma}</div><div style={{flex:1,fontSize:12.5,color:C.dim}}>km/h · {t.distance} m en 6 min · {fmtDate(t.date)}</div>{isCoach && <SmallBtn onClick={()=>removeTest(t.id)} danger>Suppr.</SmallBtn>}</div>))}</div>}
+    </div>
+  );
+}
+
+// ============================================================
+//  SANTÉ
+// ============================================================
+function SanteTab({data,persist,isCoach}){
+  const [taille,setTaille]=useState(""); const [poids,setPoids]=useState(""); const [date,setDate]=useState(todayISO());
+  const health=[...data.health].sort((a,b)=>a.date.localeCompare(b.date));
+  const last=health.length?health[health.length-1]:null;
+  const imc=last&&last.taille&&last.poids?(last.poids/Math.pow(last.taille/100,2)).toFixed(1):null;
+  const add=()=>{ const t=parseFloat(taille),p=parseFloat(poids); if(isNaN(t)&&isNaN(p))return; const entry={id:uid(),date,taille:isNaN(t)?(last?.taille??null):t,poids:isNaN(p)?null:p}; persist({...data,health:[...data.health.filter(h=>h.date!==date),entry]}); setPoids(""); };
+  const poidsPts=health.filter(h=>h.poids!=null).map(h=>({label:fmtDate(h.date),value:h.poids}));
+  const age=data.player.naissance?Math.floor((new Date()-new Date(data.player.naissance+"T00:00:00"))/(365.25*24*60*60*1000)):null;
+  const hasId=data.player.poste || (age!=null && age>=0 && age<120);
+  return (
+    <div>
+      <SectionTitle title="Suivi santé"/>
+      {hasId && <div style={{...cardStyle,marginBottom:16,display:"flex",gap:14,alignItems:"center"}}><div style={{width:46,height:46,borderRadius:12,background:C.bg2,color:C.lime,display:"grid",placeItems:"center",fontSize:22}}>👤</div><div style={{flex:1,fontSize:13,color:C.dim,display:"flex",flexWrap:"wrap",gap:14}}>{data.player.poste && <span><b style={{color:C.text}}>Poste</b> · {data.player.poste}</span>}{age!=null && age>=0 && age<120 && <span><b style={{color:C.text}}>Âge</b> · {age} ans</span>}</div></div>}
+      <div style={{display:"flex",gap:10,marginBottom:16}}><Stat label="Taille" value={last?.taille?`${last.taille} cm`:"—"}/><Stat label="Poids" value={last?.poids?`${last.poids} kg`:"—"}/><Stat label="IMC" value={imc??"—"} accent/></div>
+      {isCoach && <div style={{...cardStyle,marginBottom:16}}><div style={{fontSize:13,fontWeight:700,marginBottom:10}}>Nouvelle mesure</div><div style={{display:"flex",gap:10,flexWrap:"wrap"}}><Field label="Date" flex><input type="date" style={inp} value={date} onChange={e=>setDate(e.target.value)}/></Field><Field label="Taille (cm)" flex><input type="number" step="any" style={inp} value={taille} onChange={e=>setTaille(e.target.value)} placeholder={last?.taille?String(last.taille):"ex. 173"}/></Field><Field label="Poids (kg)" flex><input type="number" step="any" style={inp} value={poids} onChange={e=>setPoids(e.target.value)} placeholder="ex. 54"/></Field></div><button style={{...btnPrimary,marginTop:12}} onClick={add}>Enregistrer</button></div>}
+      {poidsPts.length===0 ? <Empty txt="Aucune mesure santé saisie."/> : <div style={cardStyle}><div style={{fontSize:13,fontWeight:700,marginBottom:10}}>Évolution du poids (kg)</div><SvgLineChart pts={poidsPts} color={C.red}/></div>}
+    </div>
+  );
+}
+
+// ============================================================
+//  Graphique SVG + Jauge
+// ============================================================
+function SvgLineChart({pts,goal,color}){
   const W=560,H=200,pL=38,pR=12,pT=12,pB=28;
   const vals=pts.map(p=>p.value);
-  const objVals=(objs||[]).flatMap(o=>[o.min,o.max]);
-  const all=[...vals,...objVals];
+  const gv=goal?[goal.min,goal.max]:[];
+  const all=[...vals,...gv];
   let lo=Math.min(...all), hi=Math.max(...all);
   if(!isFinite(lo)){lo=0;hi=10;}
   if(lo===hi){lo-=1;hi+=1;}
@@ -549,152 +587,23 @@ function SvgLineChart({pts,objs,color}){
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto",display:"block"}}>
       {ticks.map((t,i)=>(<g key={i}><line x1={pL} y1={Y(t)} x2={W-pR} y2={Y(t)} stroke={C.line} strokeDasharray="3 3"/><text x={pL-6} y={Y(t)+4} fill={C.dim} fontSize="11" textAnchor="end">{(+t.toFixed(1))}</text></g>))}
-      {(objs||[]).map(o=>(<rect key={o.id} x={pL} y={Y(Math.max(o.min,o.max))} width={W-pL-pR} height={Math.abs(Y(o.min)-Y(o.max))} fill={color} opacity="0.07"/>))}
-      {(objs||[]).map(o=>(<line key={o.id+"l"} x1={pL} y1={Y(o.max)} x2={W-pR} y2={Y(o.max)} stroke={color} strokeDasharray="5 4" opacity="0.7"/>))}
+      {goal && <rect x={pL} y={Y(Math.max(goal.min,goal.max))} width={W-pL-pR} height={Math.abs(Y(goal.min)-Y(goal.max))} fill={color} opacity="0.07"/>}
+      {goal && <line x1={pL} y1={Y(goal.max)} x2={W-pR} y2={Y(goal.max)} stroke={color} strokeDasharray="5 4" opacity="0.7"/>}
       <path d={path} fill="none" stroke={color} strokeWidth="2.5"/>
       {pts.map((p,i)=>(<g key={i}><circle cx={X(i)} cy={Y(p.value)} r="3.5" fill={color}><title>{p.label} : {p.value}</title></circle>{(i===0||i===pts.length-1)&&<text x={X(i)} y={H-8} fill={C.dim} fontSize="11" textAnchor={i===0?"start":"end"}>{p.label}</text>}</g>))}
     </svg>
   );
 }
 
-function Gauge({objective,value,color}){
-  const lo=Math.min(objective.min,objective.max), hi=Math.max(objective.min,objective.max);
+function Gauge({min,max,direction,value,color}){
+  const lo=Math.min(min,max), hi=Math.max(min,max);
   let pct=0; if(value!=null&&hi!==lo) pct=((value-lo)/(hi-lo))*100;
-  let progress=objective.direction==="down"?100-pct:pct; progress=Math.max(0,Math.min(100,progress));
-  const reached=value!=null&&(objective.direction==="up"?value>=objective.max:value<=objective.max);
+  let progress=direction==="down"?100-pct:pct; progress=Math.max(0,Math.min(100,progress));
+  const reached=value!=null&&(direction==="up"?value>=max:value<=max);
   return (
-    <div style={{flex:1,minWidth:90}}>
+    <div style={{minWidth:90}}>
       <div style={{height:8,background:C.bg,borderRadius:4,overflow:"hidden",border:`1px solid ${C.line}`}}><div style={{width:`${value==null?0:progress}%`,height:"100%",background:reached?C.limeDk:color,transition:"width .3s"}}/></div>
-      <div style={{display:"flex",justifyContent:"space-between",marginTop:4,fontSize:10.5,color:C.dim}}><span>{objective.min}</span><span style={{color:value==null?C.dim:reached?C.limeDk:color,fontWeight:700}}>{value==null?"—":value}{reached?" ✓":""}</span><span>{objective.max}</span></div>
-    </div>
-  );
-}
-
-// ============================================================
-//  SANTÉ
-// ============================================================
-function SanteTab({data,persist,isCoach}){
-  const [taille,setTaille]=useState("");
-  const [poids,setPoids]=useState("");
-  const [date,setDate]=useState(todayISO());
-  const health=[...data.health].sort((a,b)=>a.date.localeCompare(b.date));
-  const last=health.length?health[health.length-1]:null;
-  const imc=last&&last.taille&&last.poids?(last.poids/Math.pow(last.taille/100,2)).toFixed(1):null;
-  const add=()=>{ const t=parseFloat(taille),p=parseFloat(poids); if(isNaN(t)&&isNaN(p))return; const entry={id:uid(),date,taille:isNaN(t)?(last?.taille??null):t,poids:isNaN(p)?null:p}; persist({...data,health:[...data.health.filter(h=>h.date!==date),entry]}); setPoids(""); };
-  const poidsPts=health.filter(h=>h.poids!=null).map(h=>({label:fmtDate(h.date),value:h.poids}));
-  const age=data.player.naissance?Math.floor((new Date()-new Date(data.player.naissance+"T00:00:00"))/(365.25*24*60*60*1000)):null;
-  const hasIdentity=data.player.poste || (age!=null && age>=0 && age<120);
-  return (
-    <div>
-      <SectionTitle title="Suivi santé"/>
-      {hasIdentity && (
-        <div style={{...cardStyle,marginBottom:16,display:"flex",gap:14,alignItems:"center"}}>
-          <div style={{width:46,height:46,borderRadius:12,background:C.bg2,color:C.lime,display:"grid",placeItems:"center",fontSize:22}}>👤</div>
-          <div style={{flex:1,fontSize:13,color:C.dim,display:"flex",flexWrap:"wrap",gap:14}}>
-            {data.player.poste && <span><b style={{color:C.text}}>Poste</b> · {data.player.poste}</span>}
-            {age!=null && age>=0 && age<120 && <span><b style={{color:C.text}}>Âge</b> · {age} ans</span>}
-          </div>
-        </div>
-      )}
-      <div style={{display:"flex",gap:10,marginBottom:16}}><Stat label="Taille" value={last?.taille?`${last.taille} cm`:"—"}/><Stat label="Poids" value={last?.poids?`${last.poids} kg`:"—"}/><Stat label="IMC" value={imc??"—"} accent/></div>
-      {isCoach && (
-        <div style={{...cardStyle,marginBottom:16}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>Nouvelle mesure</div>
-          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}><Field label="Date" flex><input type="date" style={inp} value={date} onChange={e=>setDate(e.target.value)}/></Field><Field label="Taille (cm)" flex><input type="number" step="any" style={inp} value={taille} onChange={e=>setTaille(e.target.value)} placeholder={last?.taille?String(last.taille):"ex. 175"}/></Field><Field label="Poids (kg)" flex><input type="number" step="any" style={inp} value={poids} onChange={e=>setPoids(e.target.value)} placeholder="ex. 65"/></Field></div>
-          <button style={{...btnPrimary,marginTop:12}} onClick={add}>Enregistrer</button>
-        </div>
-      )}
-      {poidsPts.length===0 ? <Empty txt="Aucune mesure santé saisie."/> : <div style={cardStyle}><div style={{fontSize:13,fontWeight:700,marginBottom:10}}>Évolution du poids (kg)</div><SvgLineChart pts={poidsPts} objs={[]} color={C.red}/></div>}
-    </div>
-  );
-}
-
-// ============================================================
-//  VMA — Test demi-Cooper
-// ============================================================
-function VmaTab({data,persist,isCoach}){
-  const [dist,setDist]=useState("");
-  const [date,setDate]=useState(todayISO());
-  const tests=[...(data.vmaTests||[])].sort((a,b)=>a.date.localeCompare(b.date));
-  const lastTest=tests.length?tests[tests.length-1]:null;
-  const d=parseFloat(dist);
-  const calcVma=(!isNaN(d)&&d>0)?d/100:null;
-  const refVma=calcVma||(lastTest?lastTest.vma:null);
-  const allure=(v)=>{ if(!v) return "—"; const a=60/v; const m=Math.floor(a); const s=Math.round((a-m)*60); return `${m}:${String(s).padStart(2,"0")}`; };
-  const vo2=(v)=> v?Math.round(v*3.5):null;
-  const save=()=>{ if(!calcVma) return; const v=+calcVma.toFixed(1); const entry={id:uid(),date,distance:d,vma:v}; persist({...data,vmaTests:[...(data.vmaTests||[]).filter(t=>t.date!==date),entry]}); setDist(""); };
-  const removeTest=(id)=>{ if(!window.confirm("Supprimer ce test ?"))return; persist({...data,vmaTests:(data.vmaTests||[]).filter(t=>t.id!==id)}); };
-  const zones=[60,70,80,90,95,100,105,110];
-  const vmaPts=tests.map(t=>({label:fmtDate(t.date),value:t.vma}));
-  return (
-    <div>
-      <SectionTitle title="VMA — Test demi-Cooper"/>
-      <div style={{...cardStyle,marginBottom:14}}>
-        <div style={{fontSize:12.5,color:C.dim,lineHeight:1.6,marginBottom:isCoach?12:0}}>
-          <b style={{color:C.text}}>Protocole :</b> après échauffement, le joueur court la plus grande distance possible en <b style={{color:C.lime}}>6 minutes</b>. On relève la distance parcourue, et la VMA en découle : <b style={{color:C.lime}}>VMA (km/h) = distance (m) ÷ 100</b>.
-        </div>
-        {isCoach && (
-          <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
-            <Field label="Date" flex><input type="date" style={inp} value={date} onChange={e=>setDate(e.target.value)}/></Field>
-            <Field label="Distance en 6 min (m)" flex><input type="number" step="any" style={inp} value={dist} onChange={e=>setDist(e.target.value)} placeholder="ex. 1500"/></Field>
-          </div>
-        )}
-      </div>
-
-      {refVma && (
-        <div style={{display:"flex",gap:10,marginBottom:14}}>
-          <Stat label="VMA" value={`${(+refVma.toFixed(1))} km/h`} accent/>
-          <Stat label="Allure" value={`${allure(refVma)}/km`}/>
-          <Stat label="VO₂max est." value={`${vo2(refVma)}`}/>
-        </div>
-      )}
-
-      {isCoach && calcVma && (
-        <button style={{...btnPrimary,marginBottom:16,width:"100%"}} onClick={save}>Enregistrer ce test ({(+calcVma.toFixed(1))} km/h)</button>
-      )}
-
-      {refVma && (
-        <div style={{...cardStyle,marginBottom:14}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Allures d'entraînement</div>
-          <div style={{fontSize:11.5,color:C.dim,marginBottom:12}}>Calculées sur une VMA de {(+refVma.toFixed(1))} km/h.</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:"9px 6px",fontSize:12.5}}>
-            <div style={{color:C.dim,fontWeight:700}}>% VMA</div>
-            <div style={{color:C.dim,fontWeight:700}}>km/h</div>
-            <div style={{color:C.dim,fontWeight:700}}>allure</div>
-            <div style={{color:C.dim,fontWeight:700}}>en 30 s</div>
-            {zones.map(p=>{ const v=refVma*p/100; const dist30=Math.round(v/3.6*30); const hot=p>=95&&p<=105; return (
-              <React.Fragment key={p}>
-                <div style={{fontWeight:700,color:hot?C.lime:C.text}}>{p}%</div>
-                <div>{v.toFixed(1)}</div>
-                <div>{allure(v)}</div>
-                <div>{dist30} m</div>
-              </React.Fragment>
-            );})}
-          </div>
-          <div style={{fontSize:11,color:C.dim,marginTop:12,lineHeight:1.6}}>60-70 % endurance fondamentale · 80-90 % seuil · 95-105 % travail VMA (ex. 30-30) · 110 % survitesse. « en 30 s » = distance à courir en 30 secondes à cette allure.</div>
-        </div>
-      )}
-
-      {tests.length>0 && (
-        <div style={{...cardStyle,marginBottom:14}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>Évolution de la VMA (km/h)</div>
-          <SvgLineChart pts={vmaPts} objs={[]} color={C.lime}/>
-        </div>
-      )}
-
-      {tests.length>0 && (
-        <div style={{display:"grid",gap:8}}>
-          {[...tests].reverse().map(t=>(
-            <div key={t.id} style={{...cardStyle,display:"flex",alignItems:"center",gap:12,padding:12}}>
-              <div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:18,color:C.lime}}>{t.vma}</div>
-              <div style={{flex:1,fontSize:12.5,color:C.dim}}>km/h · {t.distance} m en 6 min · {fmtDate(t.date)}</div>
-              {isCoach && <SmallBtn onClick={()=>removeTest(t.id)} danger>Suppr.</SmallBtn>}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {!refVma && !isCoach && <Empty txt="Aucun test VMA enregistré."/>}
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:4,fontSize:10.5,color:C.dim}}><span>{min}</span><span style={{color:value==null?C.dim:reached?C.limeDk:color,fontWeight:700}}>{value==null?"—":value}{reached?" ✓":""}</span><span>{max}</span></div>
     </div>
   );
 }
@@ -706,14 +615,13 @@ const cardStyle={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,
 const inp={width:"100%",background:C.bg,border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 12px",color:C.text,fontSize:14,outline:"none",boxSizing:"border-box"};
 const btnPrimary={background:C.lime,color:"#0d1117",border:"none",borderRadius:10,padding:"10px 16px",fontWeight:700,fontSize:14,cursor:"pointer"};
 const btnGhost={background:"transparent",color:C.dim,border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 16px",fontWeight:600,fontSize:14,cursor:"pointer"};
-
 function SectionTitle({title,action}){return <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><h2 style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:22,letterSpacing:-0.5,margin:0}}>{title}</h2>{action}</div>;}
 function CatHeader({cat,count}){return <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}><span style={{fontSize:13,fontWeight:800,color:cat.color,textTransform:"uppercase",letterSpacing:0.5}}>{cat.emoji} {cat.label}</span><span style={{flex:1,height:1,background:C.line}}/><span style={{fontSize:12,color:C.dim}}>{count}</span></div>;}
 function AddBtn({onClick,label}){return <button style={btnPrimary} onClick={onClick}>+ {label}</button>;}
 function SmallBtn({children,onClick,danger,accent}){const col=danger?C.red:accent?C.lime:C.dim;return <button onClick={onClick} style={{background:accent?C.lime+"14":"transparent",border:`1px solid ${col}${danger||accent?"55":""}`,color:col,borderRadius:8,padding:"6px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{children}</button>;}
 function Chip({children,active,color,onClick}){return <button onClick={onClick} style={{background:active?color:"transparent",color:active?"#0d1117":C.dim,border:`1px solid ${active?color:C.line}`,borderRadius:20,padding:"7px 13px",fontSize:12.5,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>{children}</button>;}
 function Field({label,children,flex}){return <div style={{marginBottom:14,flex:flex?1:"none"}}><label style={{display:"block",fontSize:12,color:C.dim,fontWeight:600,marginBottom:6}}>{label}</label>{children}</div>;}
-function Stat({label,value,accent}){return <div style={{...cardStyle,flex:1,textAlign:"center",padding:14}}><div style={{fontSize:11,color:C.dim,textTransform:"uppercase",letterSpacing:0.5}}>{label}</div><div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:22,color:accent?C.lime:C.text,marginTop:4}}>{value}</div></div>;}
+function Stat({label,value,accent}){return <div style={{...cardStyle,flex:1,textAlign:"center",padding:14}}><div style={{fontSize:11,color:C.dim,textTransform:"uppercase",letterSpacing:0.5}}>{label}</div><div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:20,color:accent?C.lime:C.text,marginTop:4}}>{value}</div></div>;}
 function Empty({txt}){return <div style={{color:C.dim,fontSize:13,padding:"14px 0",textAlign:"center"}}>{txt}</div>;}
 function Modal({title,children,onClose}){
   return (
@@ -727,7 +635,7 @@ function Modal({title,children,onClose}){
 }
 function Splash(){return <div style={{minHeight:"100vh",background:C.bg,color:C.dim,display:"grid",placeItems:"center",fontFamily:"sans-serif"}}>Chargement…</div>;}
 function Waiting({onLogout}){return <div style={{minHeight:"100vh",background:C.bg,color:C.text,display:"grid",placeItems:"center",fontFamily:"'Hanken Grotesk',sans-serif",padding:24,textAlign:"center"}}><div><div style={{fontSize:34,marginBottom:12}}>⏳</div><div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:20}}>En attente du coach</div><div style={{color:C.dim,fontSize:13,marginTop:8,maxWidth:300}}>Le suivi apparaîtra dès que le coach aura saisi les premières données.</div><button style={{...btnGhost,marginTop:18}} onClick={onLogout}>Déconnexion</button></div></div>;}
-function ConfigHelp(){return <div style={{minHeight:"100vh",background:C.bg,color:C.text,display:"grid",placeItems:"center",fontFamily:"'Hanken Grotesk',sans-serif",padding:24,textAlign:"center"}}><div style={{maxWidth:380}}><div style={{fontSize:34,marginBottom:12}}>⚙️</div><div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:20}}>Configuration requise</div><div style={{color:C.dim,fontSize:13.5,marginTop:10,lineHeight:1.6}}>Ouvre ce fichier et remplis le bloc <b style={{color:C.lime}}>firebaseConfig</b> et <b style={{color:C.lime}}>COACH_UID</b> avec les informations de votre projet Firebase (clés web et UID du compte coach).</div></div></div>;}
+function ConfigHelp(){return <div style={{minHeight:"100vh",background:C.bg,color:C.text,display:"grid",placeItems:"center",fontFamily:"'Hanken Grotesk',sans-serif",padding:24,textAlign:"center"}}><div style={{maxWidth:380}}><div style={{fontSize:34,marginBottom:12}}>⚙️</div><div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:20}}>Configuration requise</div><div style={{color:C.dim,fontSize:13.5,marginTop:10,lineHeight:1.6}}>Renseigne <b style={{color:C.lime}}>firebaseConfig</b> et <b style={{color:C.lime}}>COACH_UID</b> dans le fichier.</div></div></div>;}
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
