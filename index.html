@@ -178,12 +178,13 @@ function App(){
         {tab==="modules" && <ModulesTab data={data} persist={persist} isCoach={isCoach}/>}
         {tab==="seances" && <SessionsTab data={data} persist={persist} isCoach={isCoach}/>}
         {tab==="suivi" && <SuiviTab data={data}/>}
+        {tab==="vma" && <VmaTab data={data} persist={persist} isCoach={isCoach}/>}
         {tab==="sante" && <SanteTab data={data} persist={persist} isCoach={isCoach}/>}
       </main>
 
       <nav style={{position:"fixed",bottom:0,left:0,right:0,zIndex:20,background:"#10161e",borderTop:`1px solid ${C.line}`,display:"flex",justifyContent:"center",paddingBottom:"env(safe-area-inset-bottom)"}}>
         <div style={{display:"flex",width:"100%",maxWidth:760}}>
-          {[["modules","Modules","🧩"],["seances","Séances","📅"],["suivi","Suivi","📈"],["sante","Santé","❤️"]].map(([id,label,ic])=>(
+          {[["modules","Modules","🧩"],["seances","Séances","📅"],["suivi","Suivi","📈"],["vma","VMA","🏃"],["sante","Santé","❤️"]].map(([id,label,ic])=>(
             <button key={id} onClick={()=>setTab(id)} style={{flex:1,border:"none",cursor:"pointer",background:"transparent",padding:"10px 4px 12px",display:"flex",flexDirection:"column",alignItems:"center",gap:3,color:tab===id?C.lime:C.dim,borderTop:tab===id?`2px solid ${C.lime}`:"2px solid transparent",marginTop:-1}}>
               <span style={{fontSize:18}}>{ic}</span><span style={{fontSize:11,fontWeight:700}}>{label}</span>
             </button>
@@ -604,6 +605,96 @@ function SanteTab({data,persist,isCoach}){
         </div>
       )}
       {poidsPts.length===0 ? <Empty txt="Aucune mesure santé saisie."/> : <div style={cardStyle}><div style={{fontSize:13,fontWeight:700,marginBottom:10}}>Évolution du poids (kg)</div><SvgLineChart pts={poidsPts} objs={[]} color={C.red}/></div>}
+    </div>
+  );
+}
+
+// ============================================================
+//  VMA — Test demi-Cooper
+// ============================================================
+function VmaTab({data,persist,isCoach}){
+  const [dist,setDist]=useState("");
+  const [date,setDate]=useState(todayISO());
+  const tests=[...(data.vmaTests||[])].sort((a,b)=>a.date.localeCompare(b.date));
+  const lastTest=tests.length?tests[tests.length-1]:null;
+  const d=parseFloat(dist);
+  const calcVma=(!isNaN(d)&&d>0)?d/100:null;
+  const refVma=calcVma||(lastTest?lastTest.vma:null);
+  const allure=(v)=>{ if(!v) return "—"; const a=60/v; const m=Math.floor(a); const s=Math.round((a-m)*60); return `${m}:${String(s).padStart(2,"0")}`; };
+  const vo2=(v)=> v?Math.round(v*3.5):null;
+  const save=()=>{ if(!calcVma) return; const v=+calcVma.toFixed(1); const entry={id:uid(),date,distance:d,vma:v}; persist({...data,vmaTests:[...(data.vmaTests||[]).filter(t=>t.date!==date),entry]}); setDist(""); };
+  const removeTest=(id)=>{ if(!window.confirm("Supprimer ce test ?"))return; persist({...data,vmaTests:(data.vmaTests||[]).filter(t=>t.id!==id)}); };
+  const zones=[60,70,80,90,95,100,105,110];
+  const vmaPts=tests.map(t=>({label:fmtDate(t.date),value:t.vma}));
+  return (
+    <div>
+      <SectionTitle title="VMA — Test demi-Cooper"/>
+      <div style={{...cardStyle,marginBottom:14}}>
+        <div style={{fontSize:12.5,color:C.dim,lineHeight:1.6,marginBottom:isCoach?12:0}}>
+          <b style={{color:C.text}}>Protocole :</b> après échauffement, le joueur court la plus grande distance possible en <b style={{color:C.lime}}>6 minutes</b>. On relève la distance parcourue, et la VMA en découle : <b style={{color:C.lime}}>VMA (km/h) = distance (m) ÷ 100</b>.
+        </div>
+        {isCoach && (
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+            <Field label="Date" flex><input type="date" style={inp} value={date} onChange={e=>setDate(e.target.value)}/></Field>
+            <Field label="Distance en 6 min (m)" flex><input type="number" step="any" style={inp} value={dist} onChange={e=>setDist(e.target.value)} placeholder="ex. 1500"/></Field>
+          </div>
+        )}
+      </div>
+
+      {refVma && (
+        <div style={{display:"flex",gap:10,marginBottom:14}}>
+          <Stat label="VMA" value={`${(+refVma.toFixed(1))} km/h`} accent/>
+          <Stat label="Allure" value={`${allure(refVma)}/km`}/>
+          <Stat label="VO₂max est." value={`${vo2(refVma)}`}/>
+        </div>
+      )}
+
+      {isCoach && calcVma && (
+        <button style={{...btnPrimary,marginBottom:16,width:"100%"}} onClick={save}>Enregistrer ce test ({(+calcVma.toFixed(1))} km/h)</button>
+      )}
+
+      {refVma && (
+        <div style={{...cardStyle,marginBottom:14}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Allures d'entraînement</div>
+          <div style={{fontSize:11.5,color:C.dim,marginBottom:12}}>Calculées sur une VMA de {(+refVma.toFixed(1))} km/h.</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:"9px 6px",fontSize:12.5}}>
+            <div style={{color:C.dim,fontWeight:700}}>% VMA</div>
+            <div style={{color:C.dim,fontWeight:700}}>km/h</div>
+            <div style={{color:C.dim,fontWeight:700}}>allure</div>
+            <div style={{color:C.dim,fontWeight:700}}>en 30 s</div>
+            {zones.map(p=>{ const v=refVma*p/100; const dist30=Math.round(v/3.6*30); const hot=p>=95&&p<=105; return (
+              <React.Fragment key={p}>
+                <div style={{fontWeight:700,color:hot?C.lime:C.text}}>{p}%</div>
+                <div>{v.toFixed(1)}</div>
+                <div>{allure(v)}</div>
+                <div>{dist30} m</div>
+              </React.Fragment>
+            );})}
+          </div>
+          <div style={{fontSize:11,color:C.dim,marginTop:12,lineHeight:1.6}}>60-70 % endurance fondamentale · 80-90 % seuil · 95-105 % travail VMA (ex. 30-30) · 110 % survitesse. « en 30 s » = distance à courir en 30 secondes à cette allure.</div>
+        </div>
+      )}
+
+      {tests.length>0 && (
+        <div style={{...cardStyle,marginBottom:14}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>Évolution de la VMA (km/h)</div>
+          <SvgLineChart pts={vmaPts} objs={[]} color={C.lime}/>
+        </div>
+      )}
+
+      {tests.length>0 && (
+        <div style={{display:"grid",gap:8}}>
+          {[...tests].reverse().map(t=>(
+            <div key={t.id} style={{...cardStyle,display:"flex",alignItems:"center",gap:12,padding:12}}>
+              <div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:18,color:C.lime}}>{t.vma}</div>
+              <div style={{flex:1,fontSize:12.5,color:C.dim}}>km/h · {t.distance} m en 6 min · {fmtDate(t.date)}</div>
+              {isCoach && <SmallBtn onClick={()=>removeTest(t.id)} danger>Suppr.</SmallBtn>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!refVma && !isCoach && <Empty txt="Aucun test VMA enregistré."/>}
     </div>
   );
 }
