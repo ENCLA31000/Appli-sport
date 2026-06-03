@@ -70,7 +70,7 @@ const CAT = {
 };
 
 const DEFAULT_DATA = {
-  player:{ name:"Mon joueur", level:"U18 — Régional" },
+  player:{ name:"Mon joueur", level:"Suivi entraînement footballeur", poste:"", naissance:"" },
   modules:[
     {id:"m1",name:"Sprint 30 m",category:"physique",type:"mesure",unit:"s",objectiveIds:["oSprint"]},
     {id:"m2",name:"Jonglages",category:"physique",type:"mesure",unit:"touches",objectiveIds:["oJongle"]},
@@ -117,6 +117,7 @@ function App(){
   const [tab,setTab]=useState("modules");
   const [saving,setSaving]=useState(false);
   const [err,setErr]=useState(null);
+  const [editingPlayer,setEditingPlayer]=useState(false);
 
   useEffect(()=>{
     if(!configOK) return;
@@ -156,8 +157,8 @@ function App(){
       <header style={{position:"sticky",top:0,zIndex:20,background:"linear-gradient(180deg,#10161e,#0d1117)",borderBottom:`1px solid ${C.line}`,padding:"14px 16px"}}>
         <div style={{display:"flex",alignItems:"center",gap:12,maxWidth:760,margin:"0 auto"}}>
           <div style={{width:40,height:40,borderRadius:10,flexShrink:0,background:C.lime,color:"#0d1117",display:"grid",placeItems:"center",fontWeight:900,fontSize:22}}>⚽</div>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:17,letterSpacing:-0.3,lineHeight:1}}>{data.player.name}</div>
+          <div onClick={isCoach?()=>setEditingPlayer(true):undefined} style={{flex:1,minWidth:0,cursor:isCoach?"pointer":"default"}}>
+            <div style={{fontFamily:"'Archivo',sans-serif",fontWeight:800,fontSize:17,letterSpacing:-0.3,lineHeight:1,display:"flex",alignItems:"center",gap:6}}>{data.player.name}{isCoach && <span style={{fontSize:11,opacity:.55}}>✏️</span>}</div>
             <div style={{color:C.dim,fontSize:12,marginTop:3}}>{data.player.level}</div>
           </div>
           <div style={{textAlign:"right"}}>
@@ -192,7 +193,26 @@ function App(){
 
       {saving && <div style={{position:"fixed",bottom:78,right:16,background:C.card,border:`1px solid ${C.line}`,color:C.dim,fontSize:12,padding:"6px 12px",borderRadius:20,zIndex:30}}>💾 Sauvegarde…</div>}
       {err && <div onClick={()=>setErr(null)} style={{position:"fixed",bottom:78,left:16,right:16,background:C.red,color:"#fff",fontSize:12,padding:"8px 12px",borderRadius:10,zIndex:40,maxWidth:728,margin:"0 auto"}}>⚠️ {err} (toucher pour fermer)</div>}
+      {editingPlayer && <PlayerEditor player={data.player} onSave={(p)=>{persist({...data,player:p});setEditingPlayer(false);}} onCancel={()=>setEditingPlayer(false)}/>}
     </div>
+  );
+}
+
+function PlayerEditor({player,onSave,onCancel}){
+  const [f,setF]=useState({name:player.name||"",level:player.level||"",poste:player.poste||"",naissance:player.naissance||""});
+  const set=(k,v)=>setF(p=>({...p,[k]:v}));
+  const age=f.naissance?Math.floor((new Date()-new Date(f.naissance+"T00:00:00"))/(365.25*24*60*60*1000)):null;
+  return (
+    <Modal title="Informations du joueur" onClose={onCancel}>
+      <Field label="Nom du joueur"><input style={inp} value={f.name} onChange={e=>set("name",e.target.value)} placeholder="Prénom Nom"/></Field>
+      <Field label="Sous-titre / catégorie"><input style={inp} value={f.level} onChange={e=>set("level",e.target.value)} placeholder="ex. Suivi entraînement footballeur"/></Field>
+      <Field label="Poste (optionnel)"><input style={inp} value={f.poste} onChange={e=>set("poste",e.target.value)} placeholder="ex. Milieu central, Attaquant, Gardien…"/></Field>
+      <Field label="Date de naissance (optionnel)">
+        <input type="date" style={inp} value={f.naissance} onChange={e=>set("naissance",e.target.value)}/>
+        {age!=null && age>=0 && age<120 && <div style={{fontSize:12,color:C.dim,marginTop:6}}>{age} ans</div>}
+      </Field>
+      <div style={{display:"flex",gap:10,marginTop:18}}><button style={{...btnPrimary,flex:1}} disabled={!f.name.trim()} onClick={()=>onSave(f)}>Enregistrer</button><button style={btnGhost} onClick={onCancel}>Annuler</button></div>
+    </Modal>
   );
 }
 
@@ -561,9 +581,20 @@ function SanteTab({data,persist,isCoach}){
   const imc=last&&last.taille&&last.poids?(last.poids/Math.pow(last.taille/100,2)).toFixed(1):null;
   const add=()=>{ const t=parseFloat(taille),p=parseFloat(poids); if(isNaN(t)&&isNaN(p))return; const entry={id:uid(),date,taille:isNaN(t)?(last?.taille??null):t,poids:isNaN(p)?null:p}; persist({...data,health:[...data.health.filter(h=>h.date!==date),entry]}); setPoids(""); };
   const poidsPts=health.filter(h=>h.poids!=null).map(h=>({label:fmtDate(h.date),value:h.poids}));
+  const age=data.player.naissance?Math.floor((new Date()-new Date(data.player.naissance+"T00:00:00"))/(365.25*24*60*60*1000)):null;
+  const hasIdentity=data.player.poste || (age!=null && age>=0 && age<120);
   return (
     <div>
       <SectionTitle title="Suivi santé"/>
+      {hasIdentity && (
+        <div style={{...cardStyle,marginBottom:16,display:"flex",gap:14,alignItems:"center"}}>
+          <div style={{width:46,height:46,borderRadius:12,background:C.bg2,color:C.lime,display:"grid",placeItems:"center",fontSize:22}}>👤</div>
+          <div style={{flex:1,fontSize:13,color:C.dim,display:"flex",flexWrap:"wrap",gap:14}}>
+            {data.player.poste && <span><b style={{color:C.text}}>Poste</b> · {data.player.poste}</span>}
+            {age!=null && age>=0 && age<120 && <span><b style={{color:C.text}}>Âge</b> · {age} ans</span>}
+          </div>
+        </div>
+      )}
       <div style={{display:"flex",gap:10,marginBottom:16}}><Stat label="Taille" value={last?.taille?`${last.taille} cm`:"—"}/><Stat label="Poids" value={last?.poids?`${last.poids} kg`:"—"}/><Stat label="IMC" value={imc??"—"} accent/></div>
       {isCoach && (
         <div style={{...cardStyle,marginBottom:16}}>
